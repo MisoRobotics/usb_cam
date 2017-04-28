@@ -116,6 +116,7 @@ class UsbCam {
 
 
   int init_mjpeg_decoder(int image_width, int image_height);
+  AVPixelFormat fix_pixel_format(AVPixelFormat fmt);
   void mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels);
   void process_image(const void * src, int len, camera_image_t *dest);
   int read_frame();

@@ -406,6 +406,19 @@ int UsbCam::init_mjpeg_decoder(int image_width, int image_height)
   return 1;
 }
 
+AVPixelFormat UsbCam::fix_pixel_format(AVPixelFormat fmt)
+{
+  switch (avcodec_context_->pix_fmt)
+  {
+    case AV_PIX_FMT_YUVJ411P: return AV_PIX_FMT_YUV411P;
+    case AV_PIX_FMT_YUVJ420P: return AV_PIX_FMT_YUV420P;
+    case AV_PIX_FMT_YUVJ422P: return AV_PIX_FMT_YUV422P;
+    case AV_PIX_FMT_YUVJ440P: return AV_PIX_FMT_YUV440P;
+    case AV_PIX_FMT_YUVJ444P: return AV_PIX_FMT_YUV444P;
+    default: return fmt;
+  }
+}
+
 void UsbCam::mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels)
 {
   int got_picture;
@@ -429,6 +442,9 @@ void UsbCam::mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels)
 #else
   avcodec_decode_video(avcodec_context_, avframe_camera_, &got_picture, (uint8_t *) MJPEG, len);
 #endif
+
+  // avcodec_decode_video mangles certain pixel formats in the codec context; fix that here:
+  avcodec_context_->pix_fmt = fix_pixel_format(avcodec_context_->pix_fmt);
 
   if (!got_picture)
   {
