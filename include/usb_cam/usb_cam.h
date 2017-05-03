@@ -57,8 +57,11 @@ extern "C"
 
 #include <sensor_msgs/Image.h>
 
+#include <usb_cam/usb_cam_config.h>
+
 namespace usb_cam {
 
+// Encapsulates the ability to read ROS sensor_msgs/Images from a USB camera, and configure its settings, via video4linux
 class UsbCam {
  public:
   typedef enum
@@ -77,6 +80,8 @@ class UsbCam {
   // start camera
   void start(const std::string& dev, io_method io, pixel_format pf,
 		    int image_width, int image_height, int framerate);
+  bool start(const std::string& video_device_name, const UsbCamConfig& config);
+
   // shutdown camera
   void shutdown(void);
 
@@ -96,6 +101,8 @@ class UsbCam {
   void stop_capturing(void);
   void start_capturing(void);
   bool is_capturing();
+
+  void applyConfig(const UsbCamConfig& config);
 
  private:
   typedef struct

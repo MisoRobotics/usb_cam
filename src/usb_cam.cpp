@@ -34,6 +34,8 @@
  *
  *********************************************************************/
 #define __STDC_CONSTANT_MACROS
+#include <usb_cam/usb_cam.h>
+#include <usb_cam/usb_cam_config.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,12 +49,11 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <array>
 
 #include <ros/ros.h>
 #include <boost/lexical_cast.hpp>
 #include <sensor_msgs/fill_image.h>
-
-#include <usb_cam/usb_cam.h>
 
 #define CLEAR(x) memset (&(x), 0, sizeof (x))
 
@@ -351,7 +352,6 @@ void rgb242rgb(char *YUV, char *RGB, int NumPixels)
 {
   memcpy(RGB, YUV, NumPixels * 3);
 }
-
 
 UsbCam::UsbCam()
   : io_(IO_METHOD_MMAP), fd_(-1), buffers_(NULL), n_buffers_(0), avframe_camera_(NULL),
@@ -1072,6 +1072,32 @@ void UsbCam::start(const std::string& dev, io_method io_method,
   memset(image_->image, 0, image_->image_size * sizeof(char));
 }
 
+bool UsbCam::start(const std::string& video_device_name, const UsbCamConfig& config) {
+  // set the IO method
+  UsbCam::io_method io_method = UsbCam::io_method_from_string(config.io_method_name);
+  if(io_method == UsbCam::IO_METHOD_UNKNOWN)
+  {
+    ROS_FATAL("Unknown IO method '%s'", config.io_method_name.c_str());
+    return false;
+  }
+
+  // set the pixel format
+  UsbCam::pixel_format pixel_format = UsbCam::pixel_format_from_string(config.pixel_format_name);
+  if (pixel_format == UsbCam::PIXEL_FORMAT_UNKNOWN)
+  {
+    ROS_FATAL("Unknown pixel format '%s'", config.pixel_format_name.c_str());
+    return false;
+  }
+
+  // start the camera
+  start(video_device_name.c_str(), io_method, pixel_format, config.image_width,
+       config.image_height, config.framerate);
+
+  applyConfig(config);
+
+  return true;
+}
+
 void UsbCam::shutdown(void)
 {
   stop_capturing();
@@ -1259,5 +1285,69 @@ UsbCam::pixel_format UsbCam::pixel_format_from_string(const std::string& str)
     else
       return PIXEL_FORMAT_UNKNOWN;
 }
+
+void UsbCam::applyConfig(const UsbCamConfig& config) {
+  // set camera parameters
+  if (config.brightness >= 0)
+  {
+    set_v4l_parameter("brightness", config.brightness);
+  }
+
+  if (config.contrast >= 0)
+  {
+    set_v4l_parameter("contrast", config.contrast);
+  }
+
+  if (config.saturation >= 0)
+  {
+    set_v4l_parameter("saturation", config.saturation);
+  }
+
+  if (config.sharpness >= 0)
+  {
+    set_v4l_parameter("sharpness", config.sharpness);
+  }
+
+  if (config.gain >= 0)
+  {
+    set_v4l_parameter("gain", config.gain);
+  }
+
+  // check auto white balance
+  if (config.auto_white_balance)
+  {
+    set_v4l_parameter("white_balance_temperature_auto", 1);
+  }
+  else
+  {
+    set_v4l_parameter("white_balance_temperature_auto", 0);
+    set_v4l_parameter("white_balance_temperature", config.white_balance);
+  }
+
+  // check auto exposure
+  if (!config.autoexposure)
+  {
+    // turn down exposure control (from max of 3)
+    set_v4l_parameter("exposure_auto", 1);
+    // change the exposure level
+    set_v4l_parameter("exposure_absolute", config.exposure);
+  }
+
+  // check auto focus
+  if (config.autofocus)
+  {
+    set_auto_focus(1);
+    set_v4l_parameter("focus_auto", 1);
+  }
+  else
+  {
+    set_v4l_parameter("focus_auto", 0);
+    if (config.focus >= 0)
+    {
+      set_v4l_parameter("focus_absolute", config.focus);
+    }
+  }
+}
+
 
 }

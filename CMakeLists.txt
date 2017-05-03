@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(usb_cam)
 
+add_compile_options(-std=c++14)
+
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
@@ -10,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS image_transport roscpp std_msgs std_srvs
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(avcodec libavcodec REQUIRED)
 pkg_check_modules(swscale libswscale REQUIRED)
+pkg_check_modules(udev libudev REQUIRED)
 
 ###################################################
 ## Declare things to be passed to other projects ##
@@ -31,17 +34,18 @@ include_directories(include
   ${catkin_INCLUDE_DIRS}
   ${avcodec_INCLUDE_DIRS}
   ${swscale_INCLUDE_DIRS}
+  ${udev_INCLUDE_DIRS}
 )
 
 ## Build the USB camera library
-add_library(${PROJECT_NAME} src/usb_cam.cpp)
+add_library(${PROJECT_NAME} src/usb_cam.cpp src/usb_cam_node_publisher.cpp src/usb_cam_config.cpp)
 target_link_libraries(${PROJECT_NAME}
   ${avcodec_LIBRARIES}
   ${swscale_LIBRARIES}
   ${catkin_LIBRARIES}
 )
 
-## Declare a cpp executable
+## Declare the single-camera node executable
 add_executable(${PROJECT_NAME}_node nodes/usb_cam_node.cpp)
 target_link_libraries(${PROJECT_NAME}_node
   ${PROJECT_NAME}
@@ -50,12 +54,22 @@ target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
 )
 
+## Declare the multiple-camera node executable
+add_executable(usb_cams_node nodes/usb_cams_node.cpp)
+target_link_libraries(usb_cams_node
+  ${PROJECT_NAME}
+  ${avcodec_LIBRARIES}
+  ${swscale_LIBRARIES}
+  ${catkin_LIBRARIES}
+  ${udev_LIBRARIES}
+)
+
 #############
 ## Install ##
 #############
 
 ## Mark executables and/or libraries for installation
-install(TARGETS ${PROJECT_NAME}_node ${PROJECT_NAME}
+install(TARGETS ${PROJECT_NAME}_node usb_cams_node ${PROJECT_NAME}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
