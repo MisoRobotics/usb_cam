@@ -144,6 +144,7 @@ class UsbCam {
   io_method io_;
   int fd_;
   buffer * buffers_;
+  bool buffers_allocated_;
   unsigned int n_buffers_;
   AVFrame *avframe_camera_;
   AVFrame *avframe_rgb_;

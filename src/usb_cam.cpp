@@ -61,7 +61,21 @@ namespace usb_cam {
 
 static void errno_exit(const char * s)
 {
-  ROS_ERROR("%s error %d, %s", s, errno, strerror(errno));
+  if (ros::ok()) {
+    ROS_ERROR("%s error %d, %s", s, errno, strerror(errno));
+  } else {
+    fprintf(stderr, "%s error %d, %s\n", s, errno, strerror(errno));
+  }
+  exit(EXIT_FAILURE);
+}
+
+static void error_exit(const char * s)
+{
+  if (ros::ok()) {
+    ROS_ERROR("[usb_cam error] %s", s);
+  } else {
+    fprintf(stderr, "[usb_cam error] %s\n", s);
+  }
   exit(EXIT_FAILURE);
 }
 
@@ -356,7 +370,8 @@ void rgb242rgb(char *YUV, char *RGB, int NumPixels)
 UsbCam::UsbCam()
   : io_(IO_METHOD_MMAP), fd_(-1), buffers_(NULL), n_buffers_(0), avframe_camera_(NULL),
     avframe_rgb_(NULL), avcodec_(NULL), avoptions_(NULL), avcodec_context_(NULL),
-    avframe_camera_size_(0), avframe_rgb_size_(0), video_sws_(NULL), image_(NULL), is_capturing_(false) {
+    avframe_camera_size_(0), avframe_rgb_size_(0), video_sws_(NULL), image_(NULL),
+    is_capturing_(false), buffers_allocated_(false) {
 }
 UsbCam::~UsbCam()
 {
@@ -504,6 +519,10 @@ int UsbCam::read_frame()
   unsigned int i;
   int len;
 
+  if (!buffers_allocated_) {
+    error_exit("usb_cam buffer allocation in read_frame");
+  }
+
   switch (io_)
   {
     case IO_METHOD_READ:
@@ -634,6 +653,10 @@ void UsbCam::start_capturing(void)
 
   if(is_capturing_) return;
 
+  if (!buffers_allocated_) {
+    error_exit("usb_cam buffer allocation in start_capturing");
+  }
+
   unsigned int i;
   enum v4l2_buf_type type;
 
@@ -696,6 +719,10 @@ void UsbCam::uninit_device(void)
 {
   unsigned int i;
 
+  if (!buffers_allocated_) {
+    error_exit("Attempted to uninit_device without initialized buffers");
+  }
+
   switch (io_)
   {
     case IO_METHOD_READ:
@@ -715,10 +742,16 @@ void UsbCam::uninit_device(void)
   }
 
   free(buffers_);
+
+  buffers_allocated_ = false;
 }
 
 void UsbCam::init_read(unsigned int buffer_size)
 {
+  if (buffers_allocated_) {
+    error_exit("Attempted to init_read when buffers were already allocated");
+  }
+
   buffers_ = (buffer*)calloc(1, sizeof(*buffers_));
 
   if (!buffers_)
@@ -735,10 +768,16 @@ void UsbCam::init_read(unsigned int buffer_size)
     ROS_ERROR("Out of memory");
     exit(EXIT_FAILURE);
   }
+
+  buffers_allocated_ = true;
 }
 
 void UsbCam::init_mmap(void)
 {
+  if (buffers_allocated_) {
+    error_exit("Attempted to init_mmap when buffers were already allocated");
+  }
+
   struct v4l2_requestbuffers req;
 
   CLEAR(req);
@@ -795,10 +834,16 @@ void UsbCam::init_mmap(void)
     if (MAP_FAILED == buffers_[n_buffers_].start)
       errno_exit("mmap");
   }
+
+  buffers_allocated_ = true;
 }
 
 void UsbCam::init_userp(unsigned int buffer_size)
 {
+  if (buffers_allocated_) {
+    error_exit("Attempted to init_userp when buffers were already allocated");
+  }
+
   struct v4l2_requestbuffers req;
   unsigned int page_size;
 
@@ -844,6 +889,8 @@ void UsbCam::init_userp(unsigned int buffer_size)
       exit(EXIT_FAILURE);
     }
   }
+
+  buffers_allocated_ = true;
 }
 
 void UsbCam::init_device(int image_width, int image_height, int framerate)
@@ -1100,9 +1147,9 @@ bool UsbCam::start(const std::string& video_device_name, const UsbCamConfig& con
 
 void UsbCam::shutdown(void)
 {
-  stop_capturing();
-  uninit_device();
-  close_device();
+  if (is_capturing()) stop_capturing();
+  if (buffers_allocated_) uninit_device();
+  if (fd_ != -1) close_device();
 
   if (avcodec_context_)
   {

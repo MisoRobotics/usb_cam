@@ -55,10 +55,10 @@ int main(int argc, char **argv)
   usb_cam::UsbCamConfig config(node, "");
 
   usb_cam::UsbCamNodePublisher publisher(node, video_device_name, config, "", "image_raw");
-  printf("Spinning on usb_cam_node\n");
+  printf("[usb_cam] Spinning on usb_cam_node\n");
   publisher.spin(true);
 
-  printf("usb_cam node %d finished\n", getpid());
+  printf("[usb_cam] usb_cam node %d finished; returning EXIT_SUCCESS\n", getpid());
 
   return EXIT_SUCCESS;
 }
