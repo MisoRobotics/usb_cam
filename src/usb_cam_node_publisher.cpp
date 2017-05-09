@@ -117,7 +117,6 @@ bool UsbCamNodePublisher::spin(bool spinRos)
     if (spinRos)
       ros::spinOnce();
     loop_rate.sleep();
-
   }
   return true;
 }

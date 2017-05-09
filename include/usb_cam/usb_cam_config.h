@@ -38,6 +38,8 @@
 
 #include <ros/node_handle.h>
 #include <string>
+#include <vector>
+#include <map>
 
 namespace usb_cam {
 
@@ -54,6 +56,11 @@ struct UsbCamConfig {
   std::string toString() const;
 
   std::string toYaml() const;
+
+  void addAsRosrunArgs(std::vector<std::string>& args) const;
+
+private:
+  std::map<std::string, std::string> toMap() const;
 };
 
 }

@@ -55,8 +55,8 @@ target_link_libraries(${PROJECT_NAME}_node
 )
 
 ## Declare the multiple-camera node executable
-add_executable(usb_cams_node nodes/usb_cams_node.cpp)
-target_link_libraries(usb_cams_node
+add_executable(${PROJECT_NAME}_spawner nodes/usb_cam_spawner.cpp)
+target_link_libraries(${PROJECT_NAME}_spawner
   ${PROJECT_NAME}
   ${avcodec_LIBRARIES}
   ${swscale_LIBRARIES}
@@ -69,7 +69,7 @@ target_link_libraries(usb_cams_node
 #############
 
 ## Mark executables and/or libraries for installation
-install(TARGETS ${PROJECT_NAME}_node usb_cams_node ${PROJECT_NAME}
+install(TARGETS ${PROJECT_NAME}_node ${PROJECT_NAME}_spawner ${PROJECT_NAME}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )

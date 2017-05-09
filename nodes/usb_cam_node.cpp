@@ -41,6 +41,7 @@
 #include <std_srvs/Empty.h>
 #include <usb_cam/usb_cam_config.h>
 #include <usb_cam/usb_cam_node_publisher.h>
+#include <unistd.h>
 
 int main(int argc, char **argv)
 {
@@ -54,7 +55,10 @@ int main(int argc, char **argv)
   usb_cam::UsbCamConfig config(node, "");
 
   usb_cam::UsbCamNodePublisher publisher(node, video_device_name, config, "", "image_raw");
-  publisher.spin();
+  printf("Spinning on usb_cam_node\n");
+  publisher.spin(true);
+
+  printf("usb_cam node %d finished\n", getpid());
 
   return EXIT_SUCCESS;
 }

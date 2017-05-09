@@ -38,6 +38,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <array>
+#include <vector>
+#include <string>
 
 #include <ros/node_handle.h>
 
@@ -103,30 +105,49 @@ std::string UsbCamConfig::toString() const {
   return std::string(buffer.data(), buffer.size());
 }
 
-std::string UsbCamConfig::toYaml() const {
-  std::stringstream ss;
-  ss << "brightness: " << brightness << '\n';
-  ss << "contrast: " << contrast << '\n';
-  ss << "saturation: " << saturation << '\n';
-  ss << "sharpness: " << sharpness << '\n';
-  ss << "io_method: '" << io_method_name << "'\n";
-  ss << "image_width: " << image_width << '\n';
-  ss << "image_height: " << image_height << '\n';
-  ss << "framerate: " << framerate << '\n';
-  ss << "pixel_format: '" << pixel_format_name << "'\n";
-  ss << "autofocus: " << autofocus << '\n';
-  ss << "focus: " << focus << '\n';
-  ss << "autoexposure: " << autoexposure << '\n';
-  ss << "exposure: " << exposure << '\n';
-  ss << "gain: " << gain << '\n';
-  ss << "auto_white_balance: " << auto_white_balance << '\n';
-  ss << "white_balance: " << white_balance << '\n';
+std::map<std::string, std::string> UsbCamConfig::toMap() const {
+  std::map<std::string, std::string> map;
+  map.emplace("brightness", std::to_string(brightness));
+  map.emplace("contrast", std::to_string(contrast));
+  map.emplace("saturation", std::to_string(saturation));
+  map.emplace("sharpness", std::to_string(sharpness));
+  map.emplace("io_method", io_method_name);
+  map.emplace("image_width", std::to_string(image_width));
+  map.emplace("image_height", std::to_string(image_height));
+  map.emplace("framerate", std::to_string(framerate));
+  map.emplace("pixel_format", pixel_format_name);
+  map.emplace("autofocus", std::to_string(autofocus));
+  map.emplace("focus", std::to_string(focus));
+  map.emplace("autoexposure", std::to_string(autoexposure));
+  map.emplace("exposure", std::to_string(exposure));
+  map.emplace("gain", std::to_string(gain));
+  map.emplace("auto_white_balance", std::to_string(auto_white_balance));
+  map.emplace("white_balance", std::to_string(white_balance));
 
-  //TODO: The 'camera_' preface should be removed; see note in node-based constructor
-  ss << "camera_frame_id: '" << frame_id << "'\n";
-  ss << "camera_name: '" << name << "'\n";
-  ss << "camera_info_url: '" << info_url << "'\n";
+  map.emplace("camera_frame_id", frame_id);
+  map.emplace("camera_name", name);
+  map.emplace("camera_info_url", info_url);
+  return map;
+}
+
+std::string UsbCamConfig::toYaml() const {
+  auto map = toMap();
+  std::stringstream ss;
+  for (auto const &kvp : map) {
+    ss << kvp.first << ": '" << kvp.second << "'\n";
+  }
   return ss.str();
+}
+
+void UsbCamConfig::addAsRosrunArgs(std::vector<std::string>& args) const {
+  auto map = toMap();
+  for (auto const &kvp : map) {
+    if (kvp.second.find(" ") == std::string::npos) {
+      args.push_back("_" + kvp.first + ":=" + kvp.second);
+    } else {
+      args.push_back("_" + kvp.first + ":='" + kvp.second + "'");
+    }
+  }
 }
 
 }
