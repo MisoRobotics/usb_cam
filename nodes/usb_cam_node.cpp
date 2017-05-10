@@ -55,9 +55,12 @@ int main(int argc, char **argv)
   std::string config_namespace;
   node.param("config_namespace", config_namespace, std::string(""));
 
+  std::string image_path;
+  node.param("image_path", image_path, std::string("image_raw"));
+
   usb_cam::UsbCamConfig config(node, config_namespace);
 
-  usb_cam::UsbCamNodePublisher publisher(node, video_device_name, config, "", "image_raw");
+  usb_cam::UsbCamNodePublisher publisher(node, video_device_name, config, "", image_path);
   publisher.spin(true);
 
   printf("[usb_cam] usb_cam node %d finished; returning EXIT_SUCCESS\n", getpid());

@@ -108,9 +108,9 @@ bool spawnNode(ros::ServiceClient& client, const std::string& node_path, const s
 
   std::vector<std::string> args;
   args.push_back("/usb_cam:=" + node_path);
-  //config.addAsRosrunArgs(args);
   args.push_back("_video_device:=" + device_path);
   args.push_back("_config_namespace:=" + config_namespace);
+  args.push_back("_image_path:=image");
 
   node_director::SpawnNode srv;
   srv.request.ros_package = "usb_cam";
