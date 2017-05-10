@@ -52,10 +52,12 @@ int main(int argc, char **argv)
   std::string video_device_name;
   node.param("video_device", video_device_name, std::string("/dev/video0"));
 
-  usb_cam::UsbCamConfig config(node, "");
+  std::string config_namespace;
+  node.param("config_namespace", config_namespace, std::string(""));
+
+  usb_cam::UsbCamConfig config(node, config_namespace);
 
   usb_cam::UsbCamNodePublisher publisher(node, video_device_name, config, "", "image_raw");
-  printf("[usb_cam] Spinning on usb_cam_node\n");
   publisher.spin(true);
 
   printf("[usb_cam] usb_cam node %d finished; returning EXIT_SUCCESS\n", getpid());

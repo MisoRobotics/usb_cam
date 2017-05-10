@@ -55,6 +55,8 @@
 
 #include <errno.h>
 
+#include "node_director/SpawnNode.h"
+
 namespace usb_cam {
 
 struct UsbCamInfo {
@@ -102,101 +104,21 @@ std::vector<UsbCamInfo> getCameras() {
   return cameras;
 }
 
-// \todo =========Move to utils library project==============
+bool spawnNode(ros::ServiceClient& client, const std::string& node_path, const std::string& device_path, const std::string& config_namespace) {
 
-std::string waitStatusString(int status) {
-  std::stringstream ss;
-  bool hasContent = false;
-  if (WIFEXITED(status)) {
-    int exitStatus = WEXITSTATUS(status);
-    ss << "Exited(";
-    if (exitStatus == EXIT_SUCCESS) ss << "SUCCESS";
-    else if (exitStatus == EXIT_FAILURE) ss << "FAILURE";
-    else ss << status;
-    ss << ")";
-    hasContent = true;
-  }
-  if (WIFSIGNALED(status)) {
-    if (hasContent) ss << " ";
-    int sig = WTERMSIG(status);
-    ss << "Signaled(";
-    if (sig == SIGINT) ss << "INT";
-    else if (sig == SIGTERM) ss << "TERM";
-    else if (sig == SIGKILL) ss << "KILL";
-    else if (sig == SIGQUIT) ss << "QUIT";
-    else ss << sig;
-    ss << ")";
-    hasContent = true;
-  }
-  if (WCOREDUMP(status)) {
-    if (hasContent) ss << " ";
-    ss << "CoreDump";
-    hasContent = true;
-  }
-  if (WIFSTOPPED(status)) {
-    if (hasContent) ss << " ";
-    int sig = WSTOPSIG(status);
-    ss << "StoppedBySignal(";
-    if (sig == SIGINT) ss << "INT";
-    else if (sig == SIGTERM) ss << "TERM";
-    else if (sig == SIGKILL) ss << "KILL";
-    else if (sig == SIGQUIT) ss << "QUIT";
-    else ss << sig;
-    ss << ")";
-    hasContent = true;
-  }
-  if (WIFCONTINUED(status)) {
-    if (hasContent) ss << " ";
-    ss << "ResumedSigCont";
-  }
-  return ss.str();
-}
+  std::vector<std::string> args;
+  args.push_back("/usb_cam:=" + node_path);
+  //config.addAsRosrunArgs(args);
+  args.push_back("_video_device:=" + device_path);
+  args.push_back("_config_namespace:=" + config_namespace);
 
-// ===========================================================
-
-pid_t spawnNode(const std::string& node_path, const std::string& device_path, const usb_cam::UsbCamConfig& config) {
-  pid_t pid = fork();
-
-  if (pid == 0)
-  {
-    // child process
-    ROS_INFO("This is the child process");
-    std::vector<std::string> args;
-
-    args.push_back("rosrun");
-    args.push_back("usb_cam");
-    args.push_back("usb_cam_node");
-    args.push_back("/usb_cam:=" + node_path);
-    config.addAsRosrunArgs(args);
-    args.push_back("_video_device:=" + device_path);
-
-    ROS_INFO("Constructing exec info string");
-    std::stringstream cmd;
-    cmd << "rosrun";
-    const char* charargs[args.size() + 1];
-    int i = 0;
-    for (auto const &arg : args) {
-      charargs[i++] = arg.c_str();
-      cmd << " " << arg;
-    }
-    charargs[i] = 0;
-
-    ROS_INFO("Execing %s", cmd.str().c_str());
-    int result = execvp("rosrun", (char **)charargs);
-    ROS_ERROR("Continued past execv point! result = %d, errno = %s", result, strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-  else if (pid > 0)
-  {
-    // parent process
-    return pid;
-  }
-  else
-  {
-    // fork failed
-    ROS_ERROR("Unable to fork process to start camera node '%s'", node_path.c_str());
-    return 0;
-  }
+  node_director::SpawnNode srv;
+  srv.request.ros_package = "usb_cam";
+  srv.request.executable_name = "usb_cam_node";
+  srv.request.args = args;
+  if (!client.call(srv))
+    return false;
+  return srv.response.id > 0;
 }
 
 }
@@ -206,8 +128,11 @@ int main(int argc, char **argv)
   ros::init(argc, argv, "usb_cam_spawner");
   ros::NodeHandle node("~");
 
+  ros::ServiceClient client = node.serviceClient<node_director::SpawnNode>("/node_director/spawn_node");
+
   std::vector<usb_cam::UsbCamInfo> cameras = usb_cam::getCameras();
 
+  // Read camera roles from parameter server
   std::map<std::string, std::string> roles;
   XmlRpc::XmlRpcValue camrolesnode;
   if (!node.getParam("/roles/cameras", camrolesnode) || camrolesnode.size() == 0) {
@@ -220,7 +145,7 @@ int main(int argc, char **argv)
     }
   }
 
-  std::vector<pid_t> spawned_processes;
+  // Spawn a usb_cam node for each applicable camera
   for (auto const& camera : cameras) {
     if (roles.count(camera.serial_number) == 0) {
       ROS_WARN("No role found for USB camera at %s with serial %s", camera.devnode_path.c_str(), camera.serial_number.c_str());
@@ -228,6 +153,7 @@ int main(int argc, char **argv)
     }
     const std::string& role = roles[camera.serial_number];
 
+    // Read the root camera configuration node from the parameter server
     ROS_INFO("Checking %s", camera.devnode_path.c_str());
     std::string cam_node_base_path = "/cameras/" + camera.serial_number;
     XmlRpc::XmlRpcValue camnode;
@@ -237,12 +163,12 @@ int main(int argc, char **argv)
       continue;
     }
 
+    // Make sure this camera is a USB V4L camera
     if (!camnode.hasMember("type")) {
       ROS_ERROR("USB V4L camera at %s with serial %s does not have a type documented in the parameter server.  Expected the parameter at /cameras/%s/type to be 'USB V4L'.",
              camera.devnode_path.c_str(), camera.serial_number.c_str(), camera.serial_number.c_str());
       continue;
     }
-
     std::string camInfoType = (std::string)camnode["type"];
     if (camInfoType != "USB V4L") {
       ROS_ERROR("USB V4L camera at %s with serial %s is indicated as type '%s' in the parameter server rather than the expected type 'USB V4L'.",
@@ -250,48 +176,17 @@ int main(int argc, char **argv)
       continue;
     }
 
-    usb_cam::UsbCamConfig config = usb_cam::UsbCamConfig(node, cam_node_base_path + "/");
+    // Set up and spawn node to serve this camera
     std::string node_name = "/cameras/" + role;
-    ROS_INFO("Spawning node at %s to serve images from USB camera at %s with serial %s: %s",
-           node_name.c_str(), camera.devnode_path.c_str(), camera.serial_number.c_str(), config.toString().c_str());
-    const pid_t pid = usb_cam::spawnNode(node_name, camera.devnode_path, config);
-    spawned_processes.push_back(pid);
-    //auto publisher = std::make_shared<usb_cam::UsbCamNodePublisher>(node, camera.devnode_path, config, camera.serial_number + "/", "image");
-    //auto t = std::make_shared<std::thread>([=]() { publisher->spin(false); });
-    //camthreads.push_back(t);
-  }
-
-  ROS_INFO("Started %d USB camera capture threads for usb_cams_node", (int)spawned_processes.size());
-
-  ros::spin();
-
-  const std::string TAG = "usb_cam_spawner";
-
-  printf("[%s] Spawner node shut down; terminating %d child camera nodes\n", TAG.c_str(), (int)spawned_processes.size());
-  for (const pid_t& pid : spawned_processes) {
-    int status;
-    int result = waitpid(pid, &status, WNOHANG);
-    if (result == 0) {
-      printf("[%s]   Killing child camera node %d\n", TAG.c_str(), pid);
-      if (kill(pid, SIGINT) != 0) {
-        fprintf(stderr, "Error killing child camera node %d: %s\n", pid, strerror(errno));
-      }
-    } else if (result == -1) {
-      fprintf(stderr, "Error checking child camera node %d: %s\n", pid, strerror(errno));
-    } else {
-      printf("[%s]   Child camera node %d already terminated\n", TAG.c_str(), pid);
+    ROS_INFO("Spawning node at %s to serve images from USB camera at %s with serial %s and configuration at %s",
+           node_name.c_str(), camera.devnode_path.c_str(), camera.serial_number.c_str(), cam_node_base_path.c_str());
+    bool success = usb_cam::spawnNode(client, node_name, camera.devnode_path, cam_node_base_path + "/");
+    if (!success) {
+      ROS_ERROR("Couldn't spawn node at %s", node_name.c_str());
     }
   }
 
-  printf("[%s] Waiting for child nodes to complete\n", TAG.c_str());
-  for (const pid_t& pid : spawned_processes) {
-    printf("[%s]   Waiting for %d to complete...\n", TAG.c_str(), pid);
-    int status;
-    waitpid(pid, &status, 0);
-    printf("[%s]   Camera node %d completed, status %s\n", TAG.c_str(), pid, usb_cam::waitStatusString(status).c_str());
-  }
-
-  printf("[%s] Spawner node shutdown complete\n", TAG.c_str());
+  ROS_INFO("USB camera node spawning complete");
 
   return EXIT_SUCCESS;
 }

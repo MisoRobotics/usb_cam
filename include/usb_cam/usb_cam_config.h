@@ -48,6 +48,7 @@ struct UsbCamConfig {
   int image_width, image_height, framerate, exposure, brightness, contrast, saturation, sharpness, focus,
       white_balance, gain;
   bool autofocus, autoexposure, auto_white_balance;
+  bool autofocus_defined, autoexposure_defined, auto_white_balance_defined;
 
   UsbCamConfig();
 

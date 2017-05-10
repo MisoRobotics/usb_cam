@@ -59,12 +59,12 @@
 
 namespace usb_cam {
 
-static void errno_exit(const char * s)
+static void errno_exit(const char* error, const char* location)
 {
   if (ros::ok()) {
-    ROS_ERROR("%s error %d, %s", s, errno, strerror(errno));
+    ROS_ERROR("%s error %d (%s) in usb_cam::%s", error, errno, strerror(errno), location);
   } else {
-    fprintf(stderr, "%s error %d, %s\n", s, errno, strerror(errno));
+    fprintf(stderr, "%s error %d (%s) in usb_cam::%s\n", error, errno, strerror(errno), location);
   }
   exit(EXIT_FAILURE);
 }
@@ -540,7 +540,7 @@ int UsbCam::read_frame()
             /* fall through */
 
           default:
-            errno_exit("read");
+            errno_exit("read", "read_frame");
         }
       }
 
@@ -567,7 +567,7 @@ int UsbCam::read_frame()
             /* fall through */
 
           default:
-            errno_exit("VIDIOC_DQBUF");
+            errno_exit("VIDIOC_DQBUF", "read_frame::IO_METHOD_MMAP");
         }
       }
 
@@ -576,7 +576,7 @@ int UsbCam::read_frame()
       process_image(buffers_[buf.index].start, len, image_);
 
       if (-1 == xioctl(fd_, VIDIOC_QBUF, &buf))
-        errno_exit("VIDIOC_QBUF");
+        errno_exit("VIDIOC_QBUF", "read_frame::IO_METHOD_MMAP");
 
       break;
 
@@ -599,7 +599,7 @@ int UsbCam::read_frame()
             /* fall through */
 
           default:
-            errno_exit("VIDIOC_DQBUF");
+            errno_exit("VIDIOC_DQBUF", "read_frame::IO_METHOD_USERPTR");
         }
       }
 
@@ -612,7 +612,7 @@ int UsbCam::read_frame()
       process_image((void *)buf.m.userptr, len, image_);
 
       if (-1 == xioctl(fd_, VIDIOC_QBUF, &buf))
-        errno_exit("VIDIOC_QBUF");
+        errno_exit("VIDIOC_QBUF", "read_frame::IO_METHOD_USERPTR");
 
       break;
   }
@@ -642,7 +642,7 @@ void UsbCam::stop_capturing(void)
       type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
       if (-1 == xioctl(fd_, VIDIOC_STREAMOFF, &type))
-        errno_exit("VIDIOC_STREAMOFF");
+        errno_exit("VIDIOC_STREAMOFF", "stop_capturing");
 
       break;
   }
@@ -678,13 +678,13 @@ void UsbCam::start_capturing(void)
         buf.index = i;
 
         if (-1 == xioctl(fd_, VIDIOC_QBUF, &buf))
-          errno_exit("VIDIOC_QBUF");
+          errno_exit("VIDIOC_QBUF", "start_capturing::IO_METHOD_READ");
       }
 
       type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
       if (-1 == xioctl(fd_, VIDIOC_STREAMON, &type))
-        errno_exit("VIDIOC_STREAMON");
+        errno_exit("VIDIOC_STREAMON", "start_capturing::IO_METHOD_READ");
 
       break;
 
@@ -702,13 +702,13 @@ void UsbCam::start_capturing(void)
         buf.length = buffers_[i].length;
 
         if (-1 == xioctl(fd_, VIDIOC_QBUF, &buf))
-          errno_exit("VIDIOC_QBUF");
+          errno_exit("VIDIOC_QBUF", "start_capturing::IO_METHOD_USERPTR");
       }
 
       type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
       if (-1 == xioctl(fd_, VIDIOC_STREAMON, &type))
-        errno_exit("VIDIOC_STREAMON");
+        errno_exit("VIDIOC_STREAMON", "start_capturing::IO_METHOD_USERPTR");
 
       break;
   }
@@ -732,7 +732,7 @@ void UsbCam::uninit_device(void)
     case IO_METHOD_MMAP:
       for (i = 0; i < n_buffers_; ++i)
         if (-1 == munmap(buffers_[i].start, buffers_[i].length))
-          errno_exit("munmap");
+          errno_exit("munmap", "uninit_device");
       break;
 
     case IO_METHOD_USERPTR:
@@ -795,7 +795,7 @@ void UsbCam::init_mmap(void)
     }
     else
     {
-      errno_exit("VIDIOC_REQBUFS");
+      errno_exit("VIDIOC_REQBUFS", "init_mmap");
     }
   }
 
@@ -824,7 +824,7 @@ void UsbCam::init_mmap(void)
     buf.index = n_buffers_;
 
     if (-1 == xioctl(fd_, VIDIOC_QUERYBUF, &buf))
-      errno_exit("VIDIOC_QUERYBUF");
+      errno_exit("VIDIOC_QUERYBUF", "init_mmap");
 
     buffers_[n_buffers_].length = buf.length;
     buffers_[n_buffers_].start = mmap(NULL /* start anywhere */, buf.length, PROT_READ | PROT_WRITE /* required */,
@@ -832,7 +832,7 @@ void UsbCam::init_mmap(void)
 				      fd_, buf.m.offset);
 
     if (MAP_FAILED == buffers_[n_buffers_].start)
-      errno_exit("mmap");
+      errno_exit("mmap", "init_mmap");
   }
 
   buffers_allocated_ = true;
@@ -866,7 +866,7 @@ void UsbCam::init_userp(unsigned int buffer_size)
     }
     else
     {
-      errno_exit("VIDIOC_REQBUFS");
+      errno_exit("VIDIOC_REQBUFS", "init_userp");
     }
   }
 
@@ -910,7 +910,7 @@ void UsbCam::init_device(int image_width, int image_height, int framerate)
     }
     else
     {
-      errno_exit("VIDIOC_QUERYCAP");
+      errno_exit("VIDIOC_QUERYCAP", "init_device");
     }
   }
 
@@ -983,10 +983,18 @@ void UsbCam::init_device(int image_width, int image_height, int framerate)
   fmt.fmt.pix.width = image_width;
   fmt.fmt.pix.height = image_height;
   fmt.fmt.pix.pixelformat = pixelformat_;
-  fmt.fmt.pix.field = V4L2_FIELD_INTERLACED;
+  fmt.fmt.pix.field = V4L2_FIELD_ANY;
 
-  if (-1 == xioctl(fd_, VIDIOC_S_FMT, &fmt))
-    errno_exit("VIDIOC_S_FMT");
+  if (-1 == xioctl(fd_, VIDIOC_S_FMT, &fmt)) {
+    std::string fmtstr(4, ' ');
+    uint fmtval = fmt.fmt.pix.pixelformat;
+    for (int i = 0; i < 4; i++) {
+      fmtstr[i] = (char)(fmtval & 0xFF);
+      fmtval >>= 8;
+    }
+    ROS_ERROR("Error setting VIDIOC_S_FMT to %dx%d %s", fmt.fmt.pix.width, fmt.fmt.pix.height, fmtstr.c_str());
+    errno_exit("VIDIOC_S_FMT", "init_device");
+  }
 
   /* Note VIDIOC_S_FMT may change width and height. */
 
@@ -1005,7 +1013,7 @@ void UsbCam::init_device(int image_width, int image_height, int framerate)
   memset(&stream_params, 0, sizeof(stream_params));
   stream_params.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (xioctl(fd_, VIDIOC_G_PARM, &stream_params) < 0)
-    errno_exit("Couldn't query v4l fps!");
+    errno_exit("Couldn't query v4l fps!", "init_device");
 
   ROS_DEBUG("Capability flag: 0x%x", stream_params.parm.capture.capability);
 
@@ -1035,7 +1043,7 @@ void UsbCam::init_device(int image_width, int image_height, int framerate)
 void UsbCam::close_device(void)
 {
   if (-1 == close(fd_))
-    errno_exit("close");
+    errno_exit("close", "close_device");
 
   fd_ = -1;
 }
@@ -1207,7 +1215,7 @@ void UsbCam::grab_image()
     if (EINTR == errno)
       return;
 
-    errno_exit("select");
+    errno_exit("select", "grab_image");
   }
 
   if (0 == r)
@@ -1361,37 +1369,43 @@ void UsbCam::applyConfig(const UsbCamConfig& config) {
   }
 
   // check auto white balance
-  if (config.auto_white_balance)
-  {
-    set_v4l_parameter("white_balance_temperature_auto", 1);
-  }
-  else
-  {
-    set_v4l_parameter("white_balance_temperature_auto", 0);
-    set_v4l_parameter("white_balance_temperature", config.white_balance);
+  if (config.auto_white_balance_defined) {
+    if (config.auto_white_balance)
+    {
+      set_v4l_parameter("white_balance_temperature_auto", 1);
+    }
+    else
+    {
+      set_v4l_parameter("white_balance_temperature_auto", 0);
+      set_v4l_parameter("white_balance_temperature", config.white_balance);
+    }
   }
 
   // check auto exposure
-  if (!config.autoexposure)
-  {
-    // turn down exposure control (from max of 3)
-    set_v4l_parameter("exposure_auto", 1);
-    // change the exposure level
-    set_v4l_parameter("exposure_absolute", config.exposure);
+  if (config.autoexposure_defined) {
+    if (!config.autoexposure)
+    {
+      // turn down exposure control (from max of 3)
+      set_v4l_parameter("exposure_auto", 1);
+      // change the exposure level
+      set_v4l_parameter("exposure_absolute", config.exposure);
+    }
   }
 
   // check auto focus
-  if (config.autofocus)
-  {
-    set_auto_focus(1);
-    set_v4l_parameter("focus_auto", 1);
-  }
-  else
-  {
-    set_v4l_parameter("focus_auto", 0);
-    if (config.focus >= 0)
+  if (config.autofocus_defined) {
+    if (config.autofocus)
     {
-      set_v4l_parameter("focus_absolute", config.focus);
+      set_auto_focus(1);
+      set_v4l_parameter("focus_auto", 1);
+    }
+    else
+    {
+      set_v4l_parameter("focus_auto", 0);
+      if (config.focus >= 0)
+      {
+        set_v4l_parameter("focus_absolute", config.focus);
+      }
     }
   }
 }
