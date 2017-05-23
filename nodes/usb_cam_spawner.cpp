@@ -135,8 +135,8 @@ int main(int argc, char **argv)
   // Read camera roles from parameter server
   std::map<std::string, std::string> roles;
   XmlRpc::XmlRpcValue camrolesnode;
-  if (!node.getParam("/roles/cameras", camrolesnode) || camrolesnode.size() == 0) {
-    ROS_ERROR("No camera roles found for current install in parameter server; expected parameters /roles/cameras/{ROLE} = {CAMERA}.");
+  if (!node.getParam("/install/roles/cameras", camrolesnode) || camrolesnode.size() == 0) {
+    ROS_ERROR("No camera roles found for current install in parameter server; expected parameters /install/roles/cameras/{ROLE} = {CAMERAID}.");
     return EXIT_FAILURE;
   } else {
     for (auto& rolenode : camrolesnode) {
