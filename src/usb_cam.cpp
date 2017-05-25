@@ -36,10 +36,10 @@
 #define __STDC_CONSTANT_MACROS
 #include <usb_cam/usb_cam.h>
 #include <usb_cam/usb_cam_config.h>
-#include <stdio.h>
+#include <cstdio>
 #include <stdlib.h>
-#include <string.h>
-#include <assert.h>
+#include <string>
+#include <cassert>
 #include <fcntl.h>              /* low-level i/o */
 #include <unistd.h>
 #include <errno.h>
@@ -1125,6 +1125,8 @@ void UsbCam::start(const std::string& dev, io_method io_method,
   image_->is_new = 0;
   image_->image = (char *)calloc(image_->image_size, sizeof(char));
   memset(image_->image, 0, image_->image_size * sizeof(char));
+
+  controls_ = getControls();
 }
 
 bool UsbCam::start(const std::string& video_device_name, const UsbCamConfig& config) {
@@ -1228,7 +1230,12 @@ void UsbCam::grab_image()
   image_->is_new = 1;
 }
 
+// ======================================
+// ============== Controls ==============
+// ======================================
+
 // enables/disables auto focus
+// See https://www.linuxtv.org/downloads/v4l-dvb-apis-old/vidioc-g-ext-ctrls.html
 void UsbCam::set_auto_focus(int value)
 {
   struct v4l2_queryctrl queryctrl;
@@ -1309,6 +1316,70 @@ void UsbCam::set_v4l_parameter(const std::string& param, const std::string& valu
   }
   else
     ROS_WARN("usb_cam_node could not run '%s'", cmd.c_str());
+}
+
+std::map<std::string, std::shared_ptr<v4l2_queryctrl>> UsbCam::getControls() {
+  std::map<std::string, std::shared_ptr<v4l2_queryctrl>> result;
+
+  for (int id = V4L2_CID_BASE; id <= V4L2_CID_LASTP1; id++) {
+    std::shared_ptr<v4l2_queryctrl> queryctrl = std::make_shared<v4l2_queryctrl>();
+
+    memset(queryctrl.get(), 0, sizeof(struct v4l2_queryctrl));
+    queryctrl->id = id;
+
+    if (-1 == xioctl(fd_, VIDIOC_QUERYCTRL, queryctrl.get()))
+    {
+      if (errno != EINVAL)
+      {
+        perror("VIDIOC_QUERYCTRL");
+        return result;
+      }
+      else
+      {
+        // Control not supported
+        std::cout << "getControls: " << queryctrl->name << " control not supported\n";
+        continue;
+      }
+    }
+    else if (queryctrl->flags & V4L2_CTRL_FLAG_DISABLED)
+    {
+      // Control disabled
+      std::cout << "getControls: " << id << " control disabled\n";
+      return result;
+    }
+    else
+    {
+      std::cout << "getControl: Control " << id << " '" << queryctrl->name << "' added\n";
+      result.emplace(std::string((char*)queryctrl->name), queryctrl);
+    }
+  }
+
+  return result;
+}
+
+bool UsbCam::getControlValue(std::shared_ptr<v4l2_queryctrl> queryctrl, int& value) {
+  if (queryctrl->type != V4L2_CTRL_TYPE_INTEGER
+      && queryctrl->type != V4L2_CTRL_TYPE_BOOLEAN
+      && queryctrl->type != V4L2_CTRL_TYPE_MENU
+      && queryctrl->type != V4L2_CTRL_TYPE_U8
+      && queryctrl->type != V4L2_CTRL_TYPE_U16) {
+    perror("VIDIOC_G_CTRL: Wrong type");
+    return false;
+  }
+
+  struct v4l2_control control;
+
+  memset(&control, 0, sizeof(control));
+  control.id = queryctrl->id;
+
+  if (-1 == xioctl(fd_, VIDIOC_G_CTRL, &control))
+  {
+    perror("VIDIOC_G_CTRL");
+    return false;
+  }
+
+  value = control.value;
+  return true;
 }
 
 UsbCam::io_method UsbCam::io_method_from_string(const std::string& str)

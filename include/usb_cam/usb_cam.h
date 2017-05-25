@@ -95,6 +95,10 @@ class UsbCam {
   void set_v4l_parameter(const std::string& param, int value);
   void set_v4l_parameter(const std::string& param, const std::string& value);
 
+  std::map<std::string, std::shared_ptr<v4l2_queryctrl>> controls_;
+  std::map<std::string, std::shared_ptr<v4l2_queryctrl>> getControls();
+  bool getControlValue(std::shared_ptr<v4l2_queryctrl> queryctrl, int& value);
+
   static io_method io_method_from_string(const std::string& str);
   static pixel_format pixel_format_from_string(const std::string& str);
 
@@ -155,7 +159,6 @@ class UsbCam {
   int avframe_rgb_size_;
   struct SwsContext *video_sws_;
   camera_image_t *image_;
-
 };
 
 }

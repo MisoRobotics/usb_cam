@@ -136,8 +136,12 @@ int main(int argc, char **argv)
   std::map<std::string, std::string> roles;
   XmlRpc::XmlRpcValue camrolesnode;
   if (!node.getParam("/install/roles/cameras", camrolesnode) || camrolesnode.size() == 0) {
-    ROS_ERROR("No camera roles found for current install in parameter server; expected parameters /install/roles/cameras/{ROLE} = {CAMERAID}.");
-    return EXIT_FAILURE;
+    ROS_WARN("No camera roles found for current install in parameter server; expected parameters /install/roles/cameras/{ROLE} = {CAMERAID}.");
+
+    // Use camera serial numbers as names instead
+    for (auto const& camera : cameras) {
+      roles.emplace(camera.serial_number, camera.serial_number);
+    }
   } else {
     for (auto& rolenode : camrolesnode) {
       std::string camera = (std::string)rolenode.second;

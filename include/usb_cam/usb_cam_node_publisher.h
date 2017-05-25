@@ -29,8 +29,6 @@ class UsbCamNodePublisher
     bool streaming_status_;
     boost::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
 
-    UsbCam cam_;
-
     ros::ServiceServer service_start_, service_stop_;
 
     bool service_start_cap(std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res);
@@ -46,6 +44,7 @@ class UsbCamNodePublisher
 
     bool spin(bool spinRos = true);
 
+    UsbCam cam_;
 };
 
 
