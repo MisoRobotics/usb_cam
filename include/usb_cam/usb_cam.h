@@ -95,9 +95,10 @@ class UsbCam {
   void set_v4l_parameter(const std::string& param, int value);
   void set_v4l_parameter(const std::string& param, const std::string& value);
 
-  std::map<std::string, std::shared_ptr<v4l2_queryctrl>> controls_;
-  std::map<std::string, std::shared_ptr<v4l2_queryctrl>> getControls();
-  bool getControlValue(std::shared_ptr<v4l2_queryctrl> queryctrl, int& value);
+  std::shared_ptr<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>> getControls(bool refresh = false);
+  bool getControlValue(std::shared_ptr<const v4l2_queryctrl> queryctrl, int& value);
+  std::shared_ptr<std::map<std::string, std::shared_ptr<const std::vector<std::string>>>> getMenuItems();
+  bool setControlValue(std::shared_ptr<const v4l2_queryctrl> queryctrl, int newValue);
 
   static io_method io_method_from_string(const std::string& str);
   static pixel_format pixel_format_from_string(const std::string& str);
@@ -141,7 +142,6 @@ class UsbCam {
   void grab_image();
   bool is_capturing_;
 
-
   std::string camera_dev_;
   unsigned int pixelformat_;
   bool monochrome_;
@@ -159,6 +159,8 @@ class UsbCam {
   int avframe_rgb_size_;
   struct SwsContext *video_sws_;
   camera_image_t *image_;
+  std::map<std::string, std::shared_ptr<v4l2_queryctrl>> controls_;
+  std::map<std::string, std::shared_ptr<std::vector<std::string>>> menu_items_;
 };
 
 }

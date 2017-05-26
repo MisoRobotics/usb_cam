@@ -6,7 +6,16 @@ add_compile_options(-std=c++14)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS image_transport roscpp std_msgs std_srvs sensor_msgs camera_info_manager node_director dynamic_reconfigure)
+find_package(catkin REQUIRED COMPONENTS
+  image_transport
+  roscpp
+  std_msgs
+  std_srvs
+  sensor_msgs
+  camera_info_manager
+  node_director
+  message_generation
+)
 
 ## pkg-config libraries
 find_package(PkgConfig REQUIRED)
@@ -14,7 +23,18 @@ pkg_check_modules(avcodec libavcodec REQUIRED)
 pkg_check_modules(swscale libswscale REQUIRED)
 pkg_check_modules(udev libudev REQUIRED)
 
-generate_dynamic_reconfigure_options(cfg/V4LParameters.cfg)
+add_message_files(FILES
+  CameraSettings.msg
+)
+
+add_service_files(
+  FILES
+  ChangeCameraSettings.srv
+)
+
+generate_messages(DEPENDENCIES
+  std_msgs
+)
 
 ###################################################
 ## Declare things to be passed to other projects ##
@@ -27,9 +47,10 @@ catkin_package(
   CATKIN_DEPENDS
     roscpp
     camera_info_manager
-    dynamic_reconfigure
     image_transport
     sensor_msgs
+    std_msgs
+    message_runtime
   INCLUDE_DIRS include
   LIBRARIES ${PROJECT_NAME}
 )
@@ -55,7 +76,6 @@ target_link_libraries(${PROJECT_NAME}
 
 ## Declare the single-camera node executable
 add_executable(${PROJECT_NAME}_node nodes/usb_cam_node.cpp)
-add_dependencies(${PROJECT_NAME}_node ${PROJECT_NAME}_gencfg)
 target_link_libraries(${PROJECT_NAME}_node
   ${PROJECT_NAME}
   ${avcodec_LIBRARIES}

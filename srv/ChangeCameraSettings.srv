@@ -1,0 +1,6 @@
+string[] names
+
+int32[] values
+
+---
+CameraSettings new_settings

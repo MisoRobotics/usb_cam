@@ -168,16 +168,16 @@ int main(int argc, char **argv)
     }
 
     // Make sure this camera is a USB V4L camera
-    if (!camnode.hasMember("type")) {
-      ROS_ERROR("USB V4L camera at %s with serial %s does not have a type documented in the parameter server.  Expected the parameter at /cameras/%s/type to be 'USB V4L'.",
+    if (camnode.hasMember("type")) {
+      std::string camInfoType = (std::string)camnode["type"];
+      if (camInfoType != "USB V4L") {
+        ROS_ERROR("USB V4L camera at %s with serial %s is indicated as type '%s' in the parameter server rather than the expected type 'USB V4L'.",
+               camera.devnode_path.c_str(), camera.serial_number.c_str(), camInfoType.c_str());
+        continue;
+      }
+    } else {
+      ROS_WARN("USB V4L camera at %s with serial %s does not have a type documented in the parameter server.  Expected the parameter at /cameras/%s/type to be 'USB V4L'.",
              camera.devnode_path.c_str(), camera.serial_number.c_str(), camera.serial_number.c_str());
-      continue;
-    }
-    std::string camInfoType = (std::string)camnode["type"];
-    if (camInfoType != "USB V4L") {
-      ROS_ERROR("USB V4L camera at %s with serial %s is indicated as type '%s' in the parameter server rather than the expected type 'USB V4L'.",
-             camera.devnode_path.c_str(), camera.serial_number.c_str(), camInfoType.c_str());
-      continue;
     }
 
     // Set up and spawn node to serve this camera

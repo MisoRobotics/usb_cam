@@ -34,9 +34,15 @@
  *
  *********************************************************************/
 
+#include <boost/shared_ptr.hpp>
 #include <usb_cam/usb_cam_node_publisher.h>
+#include <usb_cam/CameraSettings.h>
+#include <usb_cam/ChangeCameraSettings.h>
 
 namespace usb_cam {
+
+template<typename T, std::size_t N>
+constexpr std::size_t size(T(&)[N]) { return N; }
 
 bool UsbCamNodePublisher::service_start_cap(std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res)
 {
@@ -48,6 +54,71 @@ bool UsbCamNodePublisher::service_stop_cap( std_srvs::Empty::Request  &req, std_
 {
   cam_.stop_capturing();
   return true;
+}
+
+void UsbCamNodePublisher::adjustSettings(const std::vector<std::string>& names, const std::vector<int>& values) {
+  if (names.size() != values.size()) {
+    ROS_ERROR("Number of values (%lu) does not match number of names (%lu); invalid settings-change message", names.size(), values.size());
+    return;
+  }
+
+  auto settings = cam_.getControls();
+  int i=0;
+  for (const std::string setting : names) {
+    if (settings->count(setting) > 0) {
+      if (!cam_.setControlValue(settings->at(setting), values[i])) {
+        ROS_WARN("Unable to set %s to %d", setting.c_str(), values[i]);
+      }
+    } else {
+      ROS_WARN("Setting '%s' does not exist on camera at %s", setting.c_str(), video_device_name_.c_str());
+    }
+    i++;
+  }
+
+  settings_publisher_.publish(makeSettingsMessage());
+}
+
+bool UsbCamNodePublisher::onChangeSettings(usb_cam::ChangeCameraSettings::Request& req, usb_cam::ChangeCameraSettings::Response& res) {
+  adjustSettings(req.names, req.values);
+  auto new_settings_ptr = makeSettingsMessage();
+  res.new_settings = *new_settings_ptr;
+  return true;
+}
+
+void UsbCamNodePublisher::onIncomingSettings(const ros::MessageEvent<usb_cam::CameraSettings const>& event) {
+  if (event.getPublisherName() != ros::this_node::getName()) {
+    auto msg = event.getMessage();
+    adjustSettings(msg->names, msg->values);
+  }
+}
+
+boost::shared_ptr<usb_cam::CameraSettings> UsbCamNodePublisher::makeSettingsMessage() {
+  auto settings = boost::make_shared<usb_cam::CameraSettings>();
+  int intValue;
+  std::shared_ptr<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>> ctrls_ptr = cam_.getControls();
+  std::shared_ptr<std::map<std::string, std::shared_ptr<const std::vector<std::string>>>> menu_items_map_ptr = cam_.getMenuItems();
+  int menu_items_offset = 0;
+  for (auto const& kvp : *ctrls_ptr) {
+    if (cam_.getControlValue(kvp.second, intValue)) {
+      settings->names.push_back(kvp.first);
+      settings->values.push_back(intValue);
+      settings->types.push_back(kvp.second->type);
+      settings->default_values.push_back(kvp.second->default_value);
+      settings->min_values.push_back(kvp.second->minimum);
+      settings->max_values.push_back(kvp.second->maximum);
+      if (kvp.second->type == V4L2_CTRL_TYPE_MENU || kvp.second->type == V4L2_CTRL_TYPE_INTEGER_MENU) {
+        settings->menu_items_offsets.push_back(menu_items_offset);
+        std::shared_ptr<const std::vector<std::string>> menu_items_ptr = menu_items_map_ptr->at(kvp.first);
+        for (auto const& menu_item : *menu_items_ptr) {
+          settings->menu_items.push_back(menu_item);
+          menu_items_offset++;
+        }
+      } else {
+        settings->menu_items_offsets.push_back(0);
+      }
+    }
+  }
+  return settings;
 }
 
 UsbCamNodePublisher::UsbCamNodePublisher(ros::NodeHandle& node, const std::string& video_device_name, const UsbCamConfig& config, const std::string& camera_namespace, const std::string& image_path) :
@@ -66,6 +137,13 @@ UsbCamNodePublisher::UsbCamNodePublisher(ros::NodeHandle& node, const std::strin
   service_start_ = node_.advertiseService(camera_namespace + "start_capture", &UsbCamNodePublisher::service_start_cap, this);
   service_stop_ = node_.advertiseService(camera_namespace + "stop_capture", &UsbCamNodePublisher::service_stop_cap, this);
 
+  // Create settings topics
+  settings_publisher_ = node_.advertise<usb_cam::CameraSettings>(camera_namespace + "settings", 10, true);
+  settings_subscriber_ = node_.subscribe(camera_namespace + "settings", 10, &UsbCamNodePublisher::onIncomingSettings, this);
+
+  // Create settings service
+  settings_service_ = node_.advertiseService(camera_namespace + "change_settings", &UsbCamNodePublisher::onChangeSettings, this);
+
   // check for default camera info
   if (!cinfo_->isCalibrated())
   {
@@ -83,6 +161,8 @@ UsbCamNodePublisher::UsbCamNodePublisher(ros::NodeHandle& node, const std::strin
   {
     node_.shutdown();
   }
+
+  settings_publisher_.publish(makeSettingsMessage());
 }
 
 UsbCamNodePublisher::~UsbCamNodePublisher()

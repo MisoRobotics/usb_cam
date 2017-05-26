@@ -43,52 +43,7 @@
 #include <usb_cam/usb_cam_node_publisher.h>
 #include <unistd.h>
 
-#include <dynamic_reconfigure/server.h>
-#include <usb_cam/V4LParametersConfig.h>
-
 std::shared_ptr<usb_cam::UsbCamConfig> config;
-
-void callback(usb_cam::V4LParametersConfig &dyn_config, uint32_t level) {
-  ROS_INFO((std::string("usb_cam dynamic reconfigure:\n") +
-           "brightness: %d # %d\n" +
-           "contrast: %d # %d\n" +
-           "saturation: %d # %d\n" +
-           "sharpness: %d # %d\n" +
-           "io_method: %s # %s\n" +
-           "image_width: %d # %d\n" +
-           "image_height: %d # %d\n" +
-           "framerate: %s # %s\n" +
-           "pixel_format: %s # %s\n" +
-           "autofocus: %d # %d\n" +
-           "focus: %d # %d\n" +
-           "autoexposure: %d # %d\n" +
-           "exposure: %d # %d\n" +
-           "gain: %d # %d\n" +
-           "auto_white_balance: %d # %d\n" +
-           "white_balance: %d # %d\n" +
-           "camera_frame_id: %s # %s\n" +
-           "camera_name: %s # %s\n" +
-           "camera_info_url: %s # %s\n").c_str(),
-    dyn_config.brightness, config->brightness,
-    dyn_config.contrast, config->contrast,
-    dyn_config.saturation, config->saturation,
-    dyn_config.sharpness, config->sharpness,
-    dyn_config.io_method_name.c_str(), config->io_method_name.c_str(),
-    dyn_config.image_width, config->image_width,
-    dyn_config.image_height, config->image_height,
-    std::to_string(dyn_config.framerate).c_str(), std::to_string(config->framerate).c_str(),
-    dyn_config.pixel_format_name.c_str(), config->pixel_format_name.c_str(),
-    dyn_config.autofocus, config->autofocus,
-    dyn_config.focus, config->focus,
-    dyn_config.autoexposure, config->autoexposure,
-    dyn_config.exposure, config->exposure,
-    dyn_config.gain, config->gain,
-    dyn_config.auto_white_balance, config->auto_white_balance,
-    dyn_config.white_balance, config->white_balance,
-    dyn_config.camera_frame_id.c_str(), config->frame_id.c_str(),
-    dyn_config.camera_name.c_str(), config->name.c_str(),
-    dyn_config.camera_info_url.c_str(), config->info_url.c_str());
-}
 
 int main(int argc, char **argv)
 {
@@ -106,25 +61,8 @@ int main(int argc, char **argv)
   node.param("image_path", image_path, std::string("image_raw"));
 
   config = std::make_shared<usb_cam::UsbCamConfig>(node, config_namespace);
-ROS_INFO("usb_cam node has read config");
+
   usb_cam::UsbCamNodePublisher publisher(node, video_device_name, *config, "", image_path);
-
-  std::cout << "PRINTING CONTROL VALUES\n";
-  int value;
-  for (auto const& ctrl : publisher.cam_.controls_) {
-    if (publisher.cam_.getControlValue(ctrl.second, value)) {
-      std::cout << "Value for " << ctrl.first << ": " << value << "\n";
-    } else {
-      std::cout << "Failed to get value for " << ctrl.first << "\n";
-    }
-  }
-  std::cout << "PRINTED CONTROL VALUES\n";
-
-  // Set up dynamic_reconfigure
-  dynamic_reconfigure::Server<usb_cam::V4LParametersConfig> server;
-  dynamic_reconfigure::Server<usb_cam::V4LParametersConfig>::CallbackType f;
-  f = boost::bind(&callback, _1, _2);
-  server.setCallback(f);
 
   publisher.spin(true);
 

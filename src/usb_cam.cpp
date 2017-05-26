@@ -1125,8 +1125,6 @@ void UsbCam::start(const std::string& dev, io_method io_method,
   image_->is_new = 0;
   image_->image = (char *)calloc(image_->image_size, sizeof(char));
   memset(image_->image, 0, image_->image_size * sizeof(char));
-
-  controls_ = getControls();
 }
 
 bool UsbCam::start(const std::string& video_device_name, const UsbCamConfig& config) {
@@ -1318,52 +1316,58 @@ void UsbCam::set_v4l_parameter(const std::string& param, const std::string& valu
     ROS_WARN("usb_cam_node could not run '%s'", cmd.c_str());
 }
 
-std::map<std::string, std::shared_ptr<v4l2_queryctrl>> UsbCam::getControls() {
-  std::map<std::string, std::shared_ptr<v4l2_queryctrl>> result;
+std::shared_ptr<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>> UsbCam::getControls(bool refresh) {
+  if (controls_.size() == 0 || refresh) {
+    // Enumerate all controls
+    v4l2_queryctrl queryctrl;
+    memset(&queryctrl, 0, sizeof(queryctrl));
+    v4l2_querymenu querymenu;
 
-  for (int id = V4L2_CID_BASE; id <= V4L2_CID_LASTP1; id++) {
-    std::shared_ptr<v4l2_queryctrl> queryctrl = std::make_shared<v4l2_queryctrl>();
-
-    memset(queryctrl.get(), 0, sizeof(struct v4l2_queryctrl));
-    queryctrl->id = id;
-
-    if (-1 == xioctl(fd_, VIDIOC_QUERYCTRL, queryctrl.get()))
-    {
-      if (errno != EINVAL)
-      {
-        perror("VIDIOC_QUERYCTRL");
-        return result;
-      }
-      else
-      {
-        // Control not supported
-        std::cout << "getControls: " << queryctrl->name << " control not supported\n";
+    queryctrl.id = V4L2_CTRL_FLAG_NEXT_CTRL;
+    while (0 == xioctl(fd_, VIDIOC_QUERYCTRL, &queryctrl)) {
+      if (queryctrl.flags & V4L2_CTRL_FLAG_DISABLED)
         continue;
+
+      std::shared_ptr<v4l2_queryctrl> resultctrl = std::make_shared<v4l2_queryctrl>();
+      std::memcpy(resultctrl.get(), &queryctrl, sizeof(queryctrl));
+      std::string setting_name = std::string((char*)resultctrl->name);
+      controls_.emplace(setting_name, resultctrl);
+
+      if (queryctrl.type == V4L2_CTRL_TYPE_MENU) {
+        memset(&querymenu, 0, sizeof(querymenu));
+        querymenu.id = queryctrl.id;
+
+        auto items = std::make_shared<std::vector<std::string>>();
+        for (querymenu.index = queryctrl.minimum;
+             querymenu.index <= queryctrl.maximum;
+             querymenu.index++) {
+          if (0 == xioctl(fd_, VIDIOC_QUERYMENU, &querymenu)) {
+            items->push_back(std::string((char*)querymenu.name));
+          } else {
+            items->push_back(std::string("<invalid>"));
+          }
+        }
+        menu_items_.emplace(setting_name, items);
       }
-    }
-    else if (queryctrl->flags & V4L2_CTRL_FLAG_DISABLED)
-    {
-      // Control disabled
-      std::cout << "getControls: " << id << " control disabled\n";
-      return result;
-    }
-    else
-    {
-      std::cout << "getControl: Control " << id << " '" << queryctrl->name << "' added\n";
-      result.emplace(std::string((char*)queryctrl->name), queryctrl);
+
+      queryctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
     }
   }
 
+  // Populate result map with values from internal representation
+  auto result = std::make_shared<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>>();
+  for (auto const& kvp : controls_) {
+    result->emplace(kvp.first, kvp.second);
+  }
   return result;
 }
 
-bool UsbCam::getControlValue(std::shared_ptr<v4l2_queryctrl> queryctrl, int& value) {
+bool UsbCam::getControlValue(std::shared_ptr<const v4l2_queryctrl> queryctrl, int& value) {
   if (queryctrl->type != V4L2_CTRL_TYPE_INTEGER
       && queryctrl->type != V4L2_CTRL_TYPE_BOOLEAN
       && queryctrl->type != V4L2_CTRL_TYPE_MENU
-      && queryctrl->type != V4L2_CTRL_TYPE_U8
-      && queryctrl->type != V4L2_CTRL_TYPE_U16) {
-    perror("VIDIOC_G_CTRL: Wrong type");
+      && queryctrl->type != V4L2_CTRL_TYPE_INTEGER_MENU) {
+    perror("VIDIOC_G_CTRL: Unsupported type");
     return false;
   }
 
@@ -1380,6 +1384,43 @@ bool UsbCam::getControlValue(std::shared_ptr<v4l2_queryctrl> queryctrl, int& val
 
   value = control.value;
   return true;
+}
+
+bool UsbCam::setControlValue(std::shared_ptr<const v4l2_queryctrl> queryctrl, int newValue) {
+  if (queryctrl->type != V4L2_CTRL_TYPE_INTEGER
+      && queryctrl->type != V4L2_CTRL_TYPE_BOOLEAN
+      && queryctrl->type != V4L2_CTRL_TYPE_MENU
+      && queryctrl->type != V4L2_CTRL_TYPE_INTEGER_MENU) {
+    perror("VIDIOC_S_CTRL: Unsupported type");
+    return false;
+  }
+
+  struct v4l2_control control;
+
+  memset(&control, 0, sizeof(control));
+  control.id = queryctrl->id;
+  control.value = newValue;
+
+  if (-1 == xioctl(fd_, VIDIOC_S_CTRL, &control))
+  {
+    perror("VIDIOC_S_CTRL");
+    return false;
+  }
+
+  return true;
+}
+
+std::shared_ptr<std::map<std::string, std::shared_ptr<const std::vector<std::string>>>> UsbCam::getMenuItems() {
+  if (controls_.size() == 0) {
+    getControls();
+  }
+
+  // Populate result map with values from internal representation
+  auto result = std::make_shared<std::map<std::string, std::shared_ptr<const std::vector<std::string>>>>();
+  for (auto const& kvp : menu_items_) {
+    result->emplace(kvp.first, kvp.second);
+  }
+  return result;
 }
 
 UsbCam::io_method UsbCam::io_method_from_string(const std::string& str)
