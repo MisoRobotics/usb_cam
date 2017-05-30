@@ -96,6 +96,7 @@ class UsbCam {
   void set_v4l_parameter(const std::string& param, const std::string& value);
 
   std::shared_ptr<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>> getControls(bool refresh = false);
+  std::shared_ptr<std::vector<std::string>> getControlNames();
   bool getControlValue(std::shared_ptr<const v4l2_queryctrl> queryctrl, int& value);
   std::shared_ptr<std::map<std::string, std::shared_ptr<const std::vector<std::string>>>> getMenuItems();
   bool setControlValue(std::shared_ptr<const v4l2_queryctrl> queryctrl, int newValue);
@@ -160,6 +161,7 @@ class UsbCam {
   struct SwsContext *video_sws_;
   camera_image_t *image_;
   std::map<std::string, std::shared_ptr<v4l2_queryctrl>> controls_;
+  std::vector<std::string> control_order_;
   std::map<std::string, std::shared_ptr<std::vector<std::string>>> menu_items_;
 };
 

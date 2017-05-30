@@ -1318,6 +1318,9 @@ void UsbCam::set_v4l_parameter(const std::string& param, const std::string& valu
 
 std::shared_ptr<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>> UsbCam::getControls(bool refresh) {
   if (controls_.size() == 0 || refresh) {
+    controls_.clear();
+    control_order_.clear();
+
     // Enumerate all controls
     v4l2_queryctrl queryctrl;
     memset(&queryctrl, 0, sizeof(queryctrl));
@@ -1332,6 +1335,7 @@ std::shared_ptr<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>> Us
       std::memcpy(resultctrl.get(), &queryctrl, sizeof(queryctrl));
       std::string setting_name = std::string((char*)resultctrl->name);
       controls_.emplace(setting_name, resultctrl);
+      control_order_.push_back(setting_name);
 
       if (queryctrl.type == V4L2_CTRL_TYPE_MENU) {
         memset(&querymenu, 0, sizeof(querymenu));
@@ -1358,6 +1362,14 @@ std::shared_ptr<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>> Us
   auto result = std::make_shared<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>>();
   for (auto const& kvp : controls_) {
     result->emplace(kvp.first, kvp.second);
+  }
+  return result;
+}
+
+std::shared_ptr<std::vector<std::string>> UsbCam::getControlNames() {
+  auto result = std::make_shared<std::vector<std::string>>();
+  for (auto const& setting_name : control_order_) {
+    result->push_back(setting_name);
   }
   return result;
 }
@@ -1406,6 +1418,14 @@ bool UsbCam::setControlValue(std::shared_ptr<const v4l2_queryctrl> queryctrl, in
     perror("VIDIOC_S_CTRL");
     return false;
   }
+
+  // Move the control that was just set to the end of the control ordering
+  std::string setting_name = std::string((char*)queryctrl->name);
+  auto it = std::find(control_order_.begin(), control_order_.end(), setting_name);
+  if(it != control_order_.end()) {
+    control_order_.erase(it);
+  }
+  control_order_.push_back(setting_name);
 
   return true;
 }

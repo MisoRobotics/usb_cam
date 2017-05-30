@@ -38,11 +38,13 @@ In the paths below, ~ denotes the node namespace, which defaults to /usb_cam
 
 * **~/camera_info (sensor_msgs/CameraInfo)**: Information about the intrinsic characteristics of the camera, managed by camera_info_manager.
 
-* **~/settings (usb_cam/CameraSettings)**: All of the camera settings values when last checked.  Settings are checked upon startup, and whenever a change request is issued.  If a different node publishes a message to this topic, this node will ignore all fields of that message except names and values which it will use to attempt to change those settings.  The names field may contain any subset of the available settings, including no entries (which would result in no settings being changed, and the node republishing new current settings to current_settings).
+* **~/settings (usb_cam/CameraSettings)**: Dynamic camera settings values following the dynamic-parameters-via-topic pattern.  Settings are checked and published upon startup, and whenever a change request is issued.  If a different node publishes a message to this topic, this node will ignore all fields of that message except names and values which it will use to attempt to change those settings.  The names field may contain any subset of the available settings, including no entries (which would result in no settings being changed, and the node republishing new current settings to ~/settings).
 
 To manually change a setting via the current_settings topic on the command line, type something like:
 
 ```rostopic pub /usb_cam/settings usb_cam/CameraSettings "{names:['Exposure, Auto', 'Exposure (Absolute)'], values:[1, 100]}"```
+
+Settings are changed in the order they are specified.
 
 ##### Services
 * **~/change_settings (usb_cam/ChangeCameraSettings)**: Attempt to change the specified camera settings, and then return the new settings of the camera after the changes.  The settings will be changed in the order they are specified in the service request.
@@ -59,7 +61,8 @@ All the camera settings parameters available to usb_cam_node may also be specifi
 
 Recommended usage is to create a .yaml file containing the intrinsic information for all cameras that may be connected to the system.  It would look like this:
 
-```'B461A840':
+```
+'B461A840':
   camera_name: 'Logitech C615'
   type: 'USB V4L'
   camera_info_url: 'file://$(find miso_config)/equipment/cameras/B461A840/camera_info.yaml'

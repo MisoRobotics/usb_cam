@@ -96,19 +96,21 @@ boost::shared_ptr<usb_cam::CameraSettings> UsbCamNodePublisher::makeSettingsMess
   auto settings = boost::make_shared<usb_cam::CameraSettings>();
   int intValue;
   std::shared_ptr<std::map<std::string, std::shared_ptr<const v4l2_queryctrl>>> ctrls_ptr = cam_.getControls();
+  std::shared_ptr<std::vector<std::string>> ctrl_names_ptr = cam_.getControlNames();
   std::shared_ptr<std::map<std::string, std::shared_ptr<const std::vector<std::string>>>> menu_items_map_ptr = cam_.getMenuItems();
   int menu_items_offset = 0;
-  for (auto const& kvp : *ctrls_ptr) {
-    if (cam_.getControlValue(kvp.second, intValue)) {
-      settings->names.push_back(kvp.first);
+  for (std::string setting_name : *ctrl_names_ptr) {
+    std::shared_ptr<const v4l2_queryctrl> setting = ctrls_ptr->at(setting_name);
+    if (cam_.getControlValue(setting, intValue)) {
+      settings->names.push_back(setting_name);
       settings->values.push_back(intValue);
-      settings->types.push_back(kvp.second->type);
-      settings->default_values.push_back(kvp.second->default_value);
-      settings->min_values.push_back(kvp.second->minimum);
-      settings->max_values.push_back(kvp.second->maximum);
-      if (kvp.second->type == V4L2_CTRL_TYPE_MENU || kvp.second->type == V4L2_CTRL_TYPE_INTEGER_MENU) {
+      settings->types.push_back(setting->type);
+      settings->default_values.push_back(setting->default_value);
+      settings->min_values.push_back(setting->minimum);
+      settings->max_values.push_back(setting->maximum);
+      if (setting->type == V4L2_CTRL_TYPE_MENU || setting->type == V4L2_CTRL_TYPE_INTEGER_MENU) {
         settings->menu_items_offsets.push_back(menu_items_offset);
-        std::shared_ptr<const std::vector<std::string>> menu_items_ptr = menu_items_map_ptr->at(kvp.first);
+        std::shared_ptr<const std::vector<std::string>> menu_items_ptr = menu_items_map_ptr->at(setting_name);
         for (auto const& menu_item : *menu_items_ptr) {
           settings->menu_items.push_back(menu_item);
           menu_items_offset++;
