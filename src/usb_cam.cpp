@@ -50,6 +50,8 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <array>
+#include <time.h>
+#include <math.h>
 
 #include <ros/ros.h>
 #include <boost/lexical_cast.hpp>
@@ -372,6 +374,7 @@ UsbCam::UsbCam()
     avframe_rgb_(NULL), avcodec_(NULL), avoptions_(NULL), avcodec_context_(NULL),
     avframe_camera_size_(0), avframe_rgb_size_(0), video_sws_(NULL), image_(NULL),
     is_capturing_(false), buffers_allocated_(false) {
+  toEpochOffset_ms_ = getEpochTimeShift();
 }
 UsbCam::~UsbCam()
 {
@@ -513,7 +516,7 @@ void UsbCam::process_image(const void * src, int len, camera_image_t *dest)
     memcpy(dest->image, (char*)src, dest->width * dest->height);
 }
 
-int UsbCam::read_frame()
+struct timeval UsbCam::read_frame()
 {
   struct v4l2_buffer buf;
   unsigned int i;
@@ -522,6 +525,10 @@ int UsbCam::read_frame()
   if (!buffers_allocated_) {
     error_exit("usb_cam buffer allocation in read_frame");
   }
+
+  struct timeval result;
+  result.tv_sec = 0;
+  result.tv_usec = 0;
 
   switch (io_)
   {
@@ -532,7 +539,7 @@ int UsbCam::read_frame()
         switch (errno)
         {
           case EAGAIN:
-            return 0;
+            return result; //TODO: handle failure better
 
           case EIO:
             /* Could ignore EIO, see spec. */
@@ -543,6 +550,9 @@ int UsbCam::read_frame()
             errno_exit("read", "read_frame");
         }
       }
+
+      result.tv_sec = buf.timestamp.tv_sec;
+      result.tv_usec = buf.timestamp.tv_usec;
 
       process_image(buffers_[0].start, len, image_);
 
@@ -559,7 +569,8 @@ int UsbCam::read_frame()
         switch (errno)
         {
           case EAGAIN:
-            return 0;
+            printf("Bad.\n");
+            return result; //TODO: handle failure better
 
           case EIO:
             /* Could ignore EIO, see spec. */
@@ -570,6 +581,9 @@ int UsbCam::read_frame()
             errno_exit("VIDIOC_DQBUF", "read_frame::IO_METHOD_MMAP");
         }
       }
+
+      result.tv_sec = buf.timestamp.tv_sec;
+      result.tv_usec = buf.timestamp.tv_usec;
 
       assert(buf.index < n_buffers_);
       len = buf.bytesused;
@@ -591,7 +605,7 @@ int UsbCam::read_frame()
         switch (errno)
         {
           case EAGAIN:
-            return 0;
+            return result; //TODO: handle failure better
 
           case EIO:
             /* Could ignore EIO, see spec. */
@@ -602,6 +616,9 @@ int UsbCam::read_frame()
             errno_exit("VIDIOC_DQBUF", "read_frame::IO_METHOD_USERPTR");
         }
       }
+
+      result.tv_sec = buf.timestamp.tv_sec;
+      result.tv_usec = buf.timestamp.tv_usec;
 
       for (i = 0; i < n_buffers_; ++i)
         if (buf.m.userptr == (unsigned long)buffers_[i].start && buf.length == buffers_[i].length)
@@ -617,7 +634,7 @@ int UsbCam::read_frame()
       break;
   }
 
-  return 1;
+  return result;
 }
 
 bool UsbCam::is_capturing() {
@@ -852,7 +869,9 @@ void UsbCam::init_userp(unsigned int buffer_size)
 
   CLEAR(req);
 
-  req.count = 4;
+  const int MMAP_BUFFER_COUNT = 2;
+
+  req.count = MMAP_BUFFER_COUNT;
   req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   req.memory = V4L2_MEMORY_USERPTR;
 
@@ -878,7 +897,7 @@ void UsbCam::init_userp(unsigned int buffer_size)
     exit(EXIT_FAILURE);
   }
 
-  for (n_buffers_ = 0; n_buffers_ < 4; ++n_buffers_)
+  for (n_buffers_ = 0; n_buffers_ < MMAP_BUFFER_COUNT; ++n_buffers_)
   {
     buffers_[n_buffers_].length = buffer_size;
     buffers_[n_buffers_].start = memalign(/* boundary */page_size, buffer_size);
@@ -1178,10 +1197,19 @@ void UsbCam::shutdown(void)
 
 void UsbCam::grab_image(sensor_msgs::Image* msg)
 {
-  // grab the image
-  grab_image();
   // stamp the image
   msg->header.stamp = ros::Time::now();
+  // grab the image
+  struct timeval capture_time = grab_image();
+
+  long temp_ms = 1000 * capture_time.tv_sec + (long) round(  capture_time.tv_usec / 1000.0);
+  long epochTimeStamp_ms = temp_ms + toEpochOffset_ms_;
+  long epochSecs = epochTimeStamp_ms / 1000;
+  long epochNsecs = (epochTimeStamp_ms % 1000) * 1000000;
+  //printf("dt %lu.%lu\n", epochSecs - msg->header.stamp.sec, epochNsecs - msg->header.stamp.nsec);
+  msg->header.stamp.sec = epochSecs;
+  msg->header.stamp.nsec = epochNsecs;
+
   // fill the info
   if (monochrome_)
   {
@@ -1195,11 +1223,14 @@ void UsbCam::grab_image(sensor_msgs::Image* msg)
   }
 }
 
-void UsbCam::grab_image()
+struct timeval UsbCam::grab_image()
 {
   fd_set fds;
   struct timeval tv;
   int r;
+  struct timeval result;
+  result.tv_sec = 0;
+  result.tv_usec = 0;
 
   FD_ZERO(&fds);
   FD_SET(fd_, &fds);
@@ -1213,7 +1244,7 @@ void UsbCam::grab_image()
   if (-1 == r)
   {
     if (EINTR == errno)
-      return;
+      return result; //TODO: handle error more correctly
 
     errno_exit("select", "grab_image");
   }
@@ -1224,8 +1255,10 @@ void UsbCam::grab_image()
     exit(EXIT_FAILURE);
   }
 
-  read_frame();
+  result = read_frame();
   image_->is_new = 1;
+
+  return result;
 }
 
 // ======================================
@@ -1542,5 +1575,16 @@ void UsbCam::applyConfig(const UsbCamConfig& config) {
   }
 }
 
+long UsbCam::getEpochTimeShift() {
+    struct timeval epochtime;
+    struct timespec  vsTime;
+
+    gettimeofday(&epochtime, NULL);
+    clock_gettime(CLOCK_MONOTONIC, &vsTime);
+
+    long uptime_ms = vsTime.tv_sec* 1000 + (long)  round( vsTime.tv_nsec/ 1000000.0);
+    long epoch_ms =  epochtime.tv_sec * 1000  + (long) round( epochtime.tv_usec/1000.0);
+    return epoch_ms - uptime_ms;
+}
 
 }

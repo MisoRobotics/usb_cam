@@ -132,7 +132,7 @@ class UsbCam {
   AVPixelFormat fix_pixel_format(AVPixelFormat fmt);
   void mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels);
   void process_image(const void * src, int len, camera_image_t *dest);
-  int read_frame();
+  struct timeval read_frame();
   void uninit_device(void);
   void init_read(unsigned int buffer_size);
   void init_mmap(void);
@@ -140,9 +140,10 @@ class UsbCam {
   void init_device(int image_width, int image_height, int framerate);
   void close_device(void);
   void open_device(void);
-  void grab_image();
-  bool is_capturing_;
+  struct timeval grab_image();
+  long getEpochTimeShift();
 
+  bool is_capturing_;
   std::string camera_dev_;
   unsigned int pixelformat_;
   bool monochrome_;
@@ -163,6 +164,7 @@ class UsbCam {
   std::map<std::string, std::shared_ptr<v4l2_queryctrl>> controls_;
   std::vector<std::string> control_order_;
   std::map<std::string, std::shared_ptr<std::vector<std::string>>> menu_items_;
+  long toEpochOffset_ms_;
 };
 
 }
