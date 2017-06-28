@@ -1202,6 +1202,7 @@ void UsbCam::grab_image(sensor_msgs::Image* msg)
   // grab the image
   struct timeval capture_time = grab_image();
 
+  // https://stackoverflow.com/questions/10266451/where-does-v4l2-buffer-timestamp-value-starts-counting
   long temp_ms = 1000 * capture_time.tv_sec + (long) round(  capture_time.tv_usec / 1000.0);
   long epochTimeStamp_ms = temp_ms + toEpochOffset_ms_;
   long epochSecs = epochTimeStamp_ms / 1000;
@@ -1576,6 +1577,7 @@ void UsbCam::applyConfig(const UsbCamConfig& config) {
 }
 
 long UsbCam::getEpochTimeShift() {
+    // https://stackoverflow.com/questions/10266451/where-does-v4l2-buffer-timestamp-value-starts-counting
     struct timeval epochtime;
     struct timespec  vsTime;
 
