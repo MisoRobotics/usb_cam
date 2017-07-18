@@ -45,30 +45,29 @@
 
 namespace usb_cam {
 
-UsbCamConfig::UsbCamConfig() :
-  brightness(-1),                       // 0-255, -1 "leave alone"
-  contrast(-1),                         // 0-255, -1 "leave alone"
-  saturation(-1),                       // 0-255, -1 "leave alone"
-  sharpness(-1),                        // 0-255, -1 "leave alone"
-  io_method_name(std::string("mmap")),  // possible values: mmap, read, userptr
-  image_width(640),
-  image_height(480),
-  framerate(30),
-  pixel_format_name("mjpeg"),           // possible values: yuyv, uyvy, mjpeg, yuvmono10, rgb24
-  autofocus(false),                     // enable/disable autofocus
-    autofocus_defined(false),
-  focus(-1),                            // 0-255, -1 "leave alone"
-  autoexposure(true),                   // enable/disable autoexposure
-    autoexposure_defined(false),
-  exposure(100),
-  gain(-1),                             // 0-100?, -1 "leave alone"
-  auto_white_balance(true),             // enable/disable auto white balance temperature
-    auto_white_balance_defined(false),
-  white_balance(4000),
-
-  frame_id(std::string("head_camera")),
-  name(std::string("head_camera")),
-  info_url(std::string(""))
+UsbCamConfig::UsbCamConfig()
+  : io_method_name(std::string("mmap")) // possible values: mmap, read, userptr
+  , pixel_format_name("mjpeg")          // possible values: yuyv, uyvy, mjpeg, yuvmono10, rgb24
+  , name(std::string("head_camera"))
+  , info_url(std::string(""))
+  , frame_id(std::string("head_camera"))
+  , image_width(640)
+  , image_height(480)
+  , framerate(60)
+  , exposure(100)
+  , brightness(-1)                      // 0-255, -1 "leave alone"
+  , contrast(-1)                        // 0-255, -1 "leave alone"
+  , saturation(-1)                      // 0-255, -1 "leave alone"
+  , sharpness(-1)                       // 0-255, -1 "leave alone"
+  , focus(-1)                           // 0-255, -1 "leave alone"
+  , white_balance(4000)
+  , gain(-1)                            // 0-100?, -1 "leave alone"
+  , autofocus(false)                    // enable/disable autofocus
+  , autoexposure(false)                 // enable/disable autoexposure
+  , auto_white_balance(true)            // enable/disable auto white balance temperature
+  , autofocus_defined(false)
+  , autoexposure_defined(false)
+  , auto_white_balance_defined(false)
 { }
 
 UsbCamConfig::UsbCamConfig(ros::NodeHandle& node, const std::string& param_namespace) : UsbCamConfig::UsbCamConfig() {
