@@ -53,7 +53,7 @@ UsbCamConfig::UsbCamConfig()
   , frame_id(std::string("head_camera"))
   , image_width(640)
   , image_height(480)
-  , framerate(60)
+  , framerate(30)
   , exposure(100)
   , brightness(-1)                      // 0-255, -1 "leave alone"
   , contrast(-1)                        // 0-255, -1 "leave alone"
