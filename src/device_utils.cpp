@@ -53,13 +53,12 @@ str_map get_serial_dev_info()
 
 void clear_unsupported_devices(str_map& maps, std::string pixel_format)
 {
-  using namespace usb_cam;
   std::string upper_str = boost::to_upper_copy<std::string>(pixel_format);
 
   auto it = maps.cbegin();
   while (it != maps.cend())
   {
-    if (UsbCam::device_supports_pixel_format(it->first, upper_str))
+    if (usb_cam::UsbCam::device_supports_pixel_format(it->first, upper_str))
     {
       ++it;
     }
