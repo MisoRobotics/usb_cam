@@ -338,8 +338,10 @@ void UsbCam::mjpeg2rgb(char* MJPEG, int len, char* RGB, int NumPixels)
 
   avpkt.size = len;
   avpkt.data = (unsigned char*)MJPEG;
+  // 0 here
   ROS_INFO("mjpeg2rgb, avcodec_context_->pix_fmt:%d", avcodec_context_->pix_fmt);
   decoded_len = avcodec_decode_video2(avcodec_context_, avframe_camera_, &got_picture, &avpkt);
+  ROS_INFO("after avcodec_decode_video2, avcodec_context_->pix_fmt:%d", avcodec_context_->pix_fmt);
 
   if (decoded_len < 0)
   {
