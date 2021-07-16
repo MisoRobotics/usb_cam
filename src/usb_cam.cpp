@@ -935,8 +935,6 @@ void UsbCam::start(const std::string& dev, io_method io_method, pixel_format pix
 {
   camera_dev_ = dev;
 
-  ROS_INFO("start, avcodec_context_->pix_fmt:%d", avcodec_context_->pix_fmt);
-
   io_ = io_method;
   monochrome_ = false;
   if (pixel_format == PIXEL_FORMAT_YUYV)
