@@ -171,7 +171,7 @@ public:
     }
 
     // set the pixel format
-    ROS_INFO("pixel_format_name_:%s", pixel_format_name_);
+    ROS_INFO("pixel_format_name_:%s", pixel_format_name_.c_str());
     UsbCam::pixel_format pixel_format = UsbCam::pixel_format_from_string(pixel_format_name_);
     if (pixel_format == UsbCam::PIXEL_FORMAT_UNKNOWN)
     {
