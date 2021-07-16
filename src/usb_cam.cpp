@@ -338,6 +338,7 @@ void UsbCam::mjpeg2rgb(char* MJPEG, int len, char* RGB, int NumPixels)
 
   avpkt.size = len;
   avpkt.data = (unsigned char*)MJPEG;
+  ROS_INFO("mjpeg2rgb, avcodec_context_->pix_fmt:%d", avcodec_context_->pix_fmt);
   decoded_len = avcodec_decode_video2(avcodec_context_, avframe_camera_, &got_picture, &avpkt);
 
   if (decoded_len < 0)
@@ -934,6 +935,8 @@ void UsbCam::start(const std::string& dev, io_method io_method, pixel_format pix
 {
   camera_dev_ = dev;
 
+  ROS_INFO("start, avcodec_context_->pix_fmt:%d", avcodec_context_->pix_fmt);
+
   io_ = io_method;
   monochrome_ = false;
   if (pixel_format == PIXEL_FORMAT_YUYV)
@@ -943,7 +946,9 @@ void UsbCam::start(const std::string& dev, io_method io_method, pixel_format pix
   else if (pixel_format == PIXEL_FORMAT_MJPEG)
   {
     pixelformat_ = V4L2_PIX_FMT_MJPEG;
+    ROS_INFO("start pixelformat:%d", pixelformat_);
     init_mjpeg_decoder(image_width, image_height);
+    ROS_INFO("init_mjpeg_decoder, avcodec_context_->pix_fmt:%d", avcodec_context_->pix_fmt);
   }
   else if (pixel_format == PIXEL_FORMAT_YUVMONO10)
   {
@@ -969,7 +974,9 @@ void UsbCam::start(const std::string& dev, io_method io_method, pixel_format pix
 
   open_device();
   init_device(image_width, image_height, framerate);
+  ROS_INFO("init_device, avcodec_context_->pix_fmt:%d", avcodec_context_->pix_fmt);
   start_capturing();
+  ROS_INFO("start_capturing, avcodec_context_->pix_fmt:%d", avcodec_context_->pix_fmt);
 
   image_ = (camera_image_t*)calloc(1, sizeof(camera_image_t));
 
