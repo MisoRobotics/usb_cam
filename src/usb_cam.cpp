@@ -309,7 +309,7 @@ int UsbCam::init_mjpeg_decoder(int image_width, int image_height)
 
 #if LIBAVCODEC_VERSION_MAJOR > 52
   avcodec_context_->pix_fmt = AV_PIX_FMT_YUV420P;
-  ROS_INFO("%s", "Setting 420P");
+  ROS_INFO("%s, 420P:%d, 422P:%d", "Setting 420P", AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P);
   avcodec_context_->codec_type = AVMEDIA_TYPE_VIDEO;
 #endif
 
