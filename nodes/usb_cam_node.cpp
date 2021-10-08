@@ -45,9 +45,14 @@
 
 namespace usb_cam {
 
+//! \brief Manual Mode on V4L2 auto_exposure setting
 const int AUTO_EXPOSURE_MANUAL_MODE = 1;
-const int AUTO_EXPOSURE_AUTO_MODE = 3;
-const int WAIT_CHANGING_AUTO_EXPOSURE = 2;
+
+//! \brief Aperture Priority Mode on V4L2 auto_exposure setting
+const int AUTO_EXPOSURE_APERTURE_PRIORITY_MODE = 3;
+
+//! \brief Delay time in seconds to wait before set auto_exposure setting
+const int WAIT_CHANGING_AUTO_EXPOSURE_SEC = 2;
 
 class UsbCamNode
 {
@@ -66,7 +71,7 @@ public:
   bool streaming_status_;
   int image_width_, image_height_, framerate_, exposure_, brightness_, contrast_, saturation_, sharpness_, focus_,
       white_balance_, gain_, power_line_frequency_, gamma_, backlight_compensation_;
-  bool autofocus_, autoexposure_, auto_white_balance_, auto_balance_exposure_;
+  bool autofocus_, autoexposure_, auto_white_balance_, reset_exposure_;
   boost::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
 
   UsbCam cam_;
@@ -114,7 +119,7 @@ public:
     node_.param("focus", focus_, -1); //0-255, -1 "leave alone"
     // enable/disable autoexposure
     node_.param("autoexposure", autoexposure_, true);
-    node_.param("auto_balance_exposure", auto_balance_exposure_, false);
+    node_.param("reset_exposure", reset_exposure_, false);
     node_.param("exposure", exposure_, 100);
     node_.param("gain", gain_, -1); //0-100?, -1 "leave alone"
     // enable/disable auto white balance temperature
@@ -249,23 +254,25 @@ public:
       cam_.set_v4l_parameter("white_balance_temperature", white_balance_);
     }
 
-    // check auto balance exposure
-    if (auto_balance_exposure_)
+    // check reset exposure
+    if (reset_exposure_ && !autoexposure_)
     {
-      // Executing the auto exposure balance routine automatically. Some
-      //cameras are over exposed using the exposure_auto as manual_mode
-      //directly (without setting to auto_mode before).
-      cam_.set_v4l_parameter("exposure_auto", AUTO_EXPOSURE_AUTO_MODE);
+      // Executing the reset exposure routine automatically. Some cameras are
+      //over exposed using the exposure_auto as manual_mode directly (without
+      //setting to aperture priority mode before).
+      cam_.set_v4l_parameter(
+        "exposure_auto",
+        AUTO_EXPOSURE_APERTURE_PRIORITY_MODE
+      );
       std::this_thread::sleep_for(
-        std::chrono::seconds{ WAIT_CHANGING_AUTO_EXPOSURE }
+        std::chrono::seconds{ WAIT_CHANGING_AUTO_EXPOSURE_SEC }
       );
       cam_.set_v4l_parameter("exposure_auto", AUTO_EXPOSURE_MANUAL_MODE);
       cam_.set_v4l_parameter("exposure_absolute", exposure_);
     }
     else
     {
-      // Just loading the file configuration without the auto exposure balance
-      //routine.
+      // Just loading the file configuration without reset exposure routine.
       if (!autoexposure_)
       {
         // turn down exposure control (from max of 3)
@@ -276,7 +283,10 @@ public:
       else
       {
         // turn on exposure auto control (from max of 3)
-        cam_.set_v4l_parameter("exposure_auto", AUTO_EXPOSURE_AUTO_MODE);
+        cam_.set_v4l_parameter(
+          "exposure_auto",
+          AUTO_EXPOSURE_APERTURE_PRIORITY_MODE
+        );
       }
     }
 
