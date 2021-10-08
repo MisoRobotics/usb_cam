@@ -258,8 +258,8 @@ public:
     if (reset_exposure_ && !autoexposure_)
     {
       // Executing the reset exposure routine automatically. Some cameras are
-      //over exposed using the exposure_auto as manual_mode directly (without
-      //setting to aperture priority mode before).
+      // over exposed using the exposure_auto as manual_mode directly (without
+      // setting to aperture priority mode before).
       cam_.set_v4l_parameter(
         "exposure_auto",
         AUTO_EXPOSURE_APERTURE_PRIORITY_MODE
@@ -275,14 +275,14 @@ public:
       // Just loading the file configuration without reset exposure routine.
       if (!autoexposure_)
       {
-        // turn down exposure control (from max of 3)
+        // turn off exposure control
         cam_.set_v4l_parameter("exposure_auto", AUTO_EXPOSURE_MANUAL_MODE);
         // change the exposure level
         cam_.set_v4l_parameter("exposure_absolute", exposure_);
       }
       else
       {
-        // turn on exposure auto control (from max of 3)
+        // turn on exposure auto control
         cam_.set_v4l_parameter(
           "exposure_auto",
           AUTO_EXPOSURE_APERTURE_PRIORITY_MODE
