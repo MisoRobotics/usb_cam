@@ -23,8 +23,8 @@ Changelog for package usb_cam
 * fix bug for byte count in a pixel (3 bytes not 24 bytes) (`#40 <https://github.com/ros-drivers/usb_cam/issues/40>`_ )
 * Contributors: Daniel Seifert, Eric Zavesky, Kei Okada, Ludovico Russo, Russell Toris, honeytrap15
 
-Forthcoming
------------
+0.7.1 (2022-03-25)
+------------------
 * Merge branch 'user/rsinnet/RAD-171' into develop
 * RAD-171: Add labeling workflow
   Add a labeling workflow to apply the `flippy` label.
