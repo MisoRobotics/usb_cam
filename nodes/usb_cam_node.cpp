@@ -271,15 +271,19 @@ public:
       // Executing the reset exposure routine automatically. Some cameras are
       // over exposed using the exposure_auto as manual_mode directly (without
       // setting to aperture priority mode before).
-      cam_.set_v4l_parameter(
-        "exposure_auto",
-        AUTO_EXPOSURE_APERTURE_PRIORITY_MODE
-      );
-      std::this_thread::sleep_for(
-        std::chrono::seconds{ WAIT_CHANGING_AUTO_EXPOSURE_SEC }
-      );
-      cam_.set_v4l_parameter("exposure_auto", AUTO_EXPOSURE_MANUAL_MODE);
-      cam_.set_v4l_parameter("exposure_absolute", exposure_);
+      unsigned int i=0;
+      for (; i < 3; ++i)
+      {
+        cam_.set_v4l_parameter(
+          "exposure_auto",
+          AUTO_EXPOSURE_APERTURE_PRIORITY_MODE
+        );
+        std::this_thread::sleep_for(
+          std::chrono::seconds{ WAIT_CHANGING_AUTO_EXPOSURE_SEC }
+        );
+        cam_.set_v4l_parameter("exposure_auto", AUTO_EXPOSURE_MANUAL_MODE);
+        cam_.set_v4l_parameter("exposure_absolute", exposure_);
+      }
     }
     else
     {
