@@ -28,6 +28,10 @@ catkin_package(
 ## Build ##
 ###########
 
+set(CMAKE_CXX_STANDARD 17)
+
+set(GCC_COVERAGE_LINK_FLAGS "-lstdc++fs")
+
 include_directories(include
   ${catkin_INCLUDE_DIRS}
   ${avcodec_INCLUDE_DIRS}
@@ -44,6 +48,7 @@ target_link_libraries(${PROJECT_NAME}
   ${avcodec_LIBRARIES}
   ${swscale_LIBRARIES}
   ${catkin_LIBRARIES}
+  ${GCC_COVERAGE_LINK_FLAGS}
 )
 
 ## Declare a cpp executable
