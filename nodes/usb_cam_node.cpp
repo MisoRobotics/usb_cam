@@ -1,52 +1,52 @@
 /*********************************************************************
-*
-* Software License Agreement (BSD License)
-*
-*  Copyright (c) 2014, Robert Bosch LLC.
-*  All rights reserved.
-*
-*  Redistribution and use in source and binary forms, with or without
-*  modification, are permitted provided that the following conditions
-*  are met:
-*
-*   * Redistributions of source code must retain the above copyright
-*     notice, this list of conditions and the following disclaimer.
-*   * Redistributions in binary form must reproduce the above
-*     copyright notice, this list of conditions and the following
-*     disclaimer in the documentation and/or other materials provided
-*     with the distribution.
-*   * Neither the name of the Robert Bosch nor the names of its
-*     contributors may be used to endorse or promote products derived
-*     from this software without specific prior written permission.
-*
-*  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-*  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-*  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-*  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-*  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-*  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-*  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-*  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-*  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-*  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-*  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-*  POSSIBILITY OF SUCH DAMAGE.
-*
-*********************************************************************/
+ *
+ * Software License Agreement (BSD License)
+ *
+ *  Copyright (c) 2014, Robert Bosch LLC.
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the following
+ *     disclaimer in the documentation and/or other materials provided
+ *     with the distribution.
+ *   * Neither the name of the Robert Bosch nor the names of its
+ *     contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ *  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *  POSSIBILITY OF SUCH DAMAGE.
+ *
+ *********************************************************************/
 
 #include <filesystem>
 
-#include <ros/ros.h>
-#include <usb_cam/usb_cam.h>
-#include <image_transport/image_transport.h>
 #include <camera_info_manager/camera_info_manager.h>
+#include <image_transport/image_transport.h>
 #include <memory>
+#include <misocpp/diagnostic_updater_wrapper.h>
+#include <ros/ros.h>
 #include <sstream>
 #include <std_srvs/Empty.h>
 #include <std_srvs/SetBool.h>
 #include <thread>
 #include <usb_cam/device_utils.h>
-#include <misocpp/diagnostic_updater_wrapper.h>
+#include <usb_cam/usb_cam.h>
 
 namespace usb_cam {
 
@@ -59,14 +59,14 @@ const int AUTO_EXPOSURE_APERTURE_PRIORITY_MODE = 3;
 //! \brief Delay time in seconds to wait before set auto_exposure setting
 const int WAIT_CHANGING_AUTO_EXPOSURE_SEC = 2;
 
-//! \brief Timer period in seconds between calls to reset camera exposure setting
+//! \brief Timer period in seconds between calls to reset camera exposure
+//! setting
 const double AUTO_RESET_EXPOSURE_PERIOD = 60.0;
 
-class UsbCamNode
-{
+class UsbCamNode {
   misocpp::DiagnosticHeartbeat heartbeat_;
-  std::unique_ptr<misocpp::DiagnosticFrequency> diag_freq_image_raw_{ nullptr };
-  std::unique_ptr<misocpp::DiagnosticFrequency> diag_freq_camera_info_{ nullptr };
+  std::unique_ptr<misocpp::DiagnosticFrequency> diag_freq_image_raw_{nullptr};
+  std::unique_ptr<misocpp::DiagnosticFrequency> diag_freq_camera_info_{nullptr};
   double expected_freq_, auto_reset_exposure_period_;
   ros::Timer auto_reset_exposure_timer_;
   bool enable_auto_reset_exposure_;
@@ -80,43 +80,42 @@ public:
   image_transport::CameraPublisher image_pub_;
 
   // parameters
-  std::string video_device_name_, io_method_name_, pixel_format_name_, camera_name_, camera_info_url_;
+  std::string video_device_name_, io_method_name_, pixel_format_name_,
+      camera_name_, camera_info_url_;
   std::string serial_number_;
   bool streaming_status_;
-  int image_width_, image_height_, framerate_, bits_per_pixel_, exposure_, brightness_, contrast_, saturation_,
-      sharpness_, focus_, white_balance_, gain_, power_line_frequency_, gamma_, backlight_compensation_;
+  int image_width_, image_height_, framerate_, bits_per_pixel_, exposure_,
+      brightness_, contrast_, saturation_, sharpness_, focus_, white_balance_,
+      gain_, power_line_frequency_, gamma_, backlight_compensation_;
   bool autofocus_, autoexposure_, auto_white_balance_;
   boost::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
 
   UsbCam cam_;
 
-  ros::ServiceServer service_start_, service_stop_, service_auto_reset_exposure_;
+  ros::ServiceServer service_start_, service_stop_,
+      service_auto_reset_exposure_;
 
-  bool service_start_cap(std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
-  {
+  bool service_start_cap(std_srvs::Empty::Request &req,
+                         std_srvs::Empty::Response &res) {
     cam_.start_capturing();
     return true;
   }
 
-
-  bool service_stop_cap( std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
-  {
+  bool service_stop_cap(std_srvs::Empty::Request &req,
+                        std_srvs::Empty::Response &res) {
     cam_.stop_capturing();
     return true;
   }
 
-  bool service_auto_reset_exposure( std_srvs::SetBool::Request  &req, std_srvs::SetBool::Response &res )
-  {
+  bool service_auto_reset_exposure(std_srvs::SetBool::Request &req,
+                                   std_srvs::SetBool::Response &res) {
     enable_auto_reset_exposure_ = req.data;
     res.success = true;
     res.message = "";
     return true;
   }
-  
 
-  UsbCamNode() :
-      node_("~")
-  {
+  UsbCamNode() : node_("~") {
     // advertise the main image topic
     image_transport::ImageTransport it(node_);
     image_pub_ = it.advertiseCamera("image_raw", 1);
@@ -124,10 +123,10 @@ public:
     // grab the parameters
     node_.param("serial_no", serial_number_, std::string(""));
     node_.param("video_device", video_device_name_, std::string("/dev/video0"));
-    node_.param("brightness", brightness_, -1); //0-255, -1 "leave alone"
-    node_.param("contrast", contrast_, -1); //0-255, -1 "leave alone"
-    node_.param("saturation", saturation_, -1); //0-255, -1 "leave alone"
-    node_.param("sharpness", sharpness_, -1); //0-255, -1 "leave alone"
+    node_.param("brightness", brightness_, -1); // 0-255, -1 "leave alone"
+    node_.param("contrast", contrast_, -1);     // 0-255, -1 "leave alone"
+    node_.param("saturation", saturation_, -1); // 0-255, -1 "leave alone"
+    node_.param("sharpness", sharpness_, -1);   // 0-255, -1 "leave alone"
     // possible values: mmap, read, userptr
     node_.param("io_method", io_method_name_, std::string("mmap"));
     node_.param("image_width", image_width_, 640);
@@ -138,12 +137,13 @@ public:
     node_.param("bits_per_pixel", bits_per_pixel_, 12);
     // enable/disable autofocus
     node_.param("autofocus", autofocus_, false);
-    node_.param("focus", focus_, -1); //0-255, -1 "leave alone"
+    node_.param("focus", focus_, -1); // 0-255, -1 "leave alone"
     // enable/disable autoexposure
     node_.param("autoexposure", autoexposure_, true);
-    node_.param("auto_reset_exposure_period", auto_reset_exposure_period_, AUTO_RESET_EXPOSURE_PERIOD);
+    node_.param("auto_reset_exposure_period", auto_reset_exposure_period_,
+                AUTO_RESET_EXPOSURE_PERIOD);
     node_.param("exposure", exposure_, 100);
-    node_.param("gain", gain_, -1); //0-100?, -1 "leave alone"
+    node_.param("gain", gain_, -1); // 0-100?, -1 "leave alone"
     // enable/disable auto white balance temperature
     node_.param("auto_white_balance", auto_white_balance_, true);
     node_.param("white_balance", white_balance_, 4000);
@@ -152,45 +152,46 @@ public:
     node_.param("backlight_compensation", backlight_compensation_, 1);
 
     // load the camera info
-    node_.param("camera_frame_id", img_.header.frame_id, std::string("head_camera"));
+    node_.param("camera_frame_id", img_.header.frame_id,
+                std::string("head_camera"));
     node_.param("camera_name", camera_name_, std::string("head_camera"));
     node_.param("camera_info_url", camera_info_url_, std::string(""));
-    cinfo_.reset(new camera_info_manager::CameraInfoManager(node_, camera_name_, camera_info_url_));
+    cinfo_.reset(new camera_info_manager::CameraInfoManager(node_, camera_name_,
+                                                            camera_info_url_));
 
     // create Services
-    service_start_ = node_.advertiseService("start_capture", &UsbCamNode::service_start_cap, this);
-    service_stop_ = node_.advertiseService("stop_capture", &UsbCamNode::service_stop_cap, this);
-    service_auto_reset_exposure_ = node_.advertiseService("reset_exposure", &UsbCamNode::service_auto_reset_exposure, this);
+    service_start_ = node_.advertiseService(
+        "start_capture", &UsbCamNode::service_start_cap, this);
+    service_stop_ = node_.advertiseService("stop_capture",
+                                           &UsbCamNode::service_stop_cap, this);
+    service_auto_reset_exposure_ = node_.advertiseService(
+        "reset_exposure", &UsbCamNode::service_auto_reset_exposure, this);
 
-    if (!serial_number_.empty())
-    {
+    if (!serial_number_.empty()) {
       str_map map_dev_serial = get_serial_dev_info();
       clear_unsupported_devices(map_dev_serial, pixel_format_name_);
 
       bool found = false;
       auto it = map_dev_serial.cbegin();
-      for (; it != map_dev_serial.cend(); ++it)
-      {
+      for (; it != map_dev_serial.cend(); ++it) {
         std::size_t found_pos = serial_number_.find(it->second);
-        if (found_pos != std::string::npos)
-        {
+        if (found_pos != std::string::npos) {
           found = true;
           video_device_name_ = it->first;
           break;
         }
       }
 
-      if (!found)
-      {
-        ROS_FATAL("USB camera with serial number '%s' cannot be found.", serial_number_.c_str());
+      if (!found) {
+        ROS_FATAL("USB camera with serial number '%s' cannot be found.",
+                  serial_number_.c_str());
         node_.shutdown();
         return;
       }
     }
 
     // check for default camera info
-    if (!cinfo_->isCalibrated())
-    {
+    if (!cinfo_->isCalibrated()) {
       cinfo_->setCameraName(video_device_name_);
       sensor_msgs::CameraInfo camera_info;
       camera_info.header.frame_id = img_.header.frame_id;
@@ -199,113 +200,93 @@ public:
       cinfo_->setCameraInfo(camera_info);
     }
 
-
-    ROS_INFO("Starting '%s' (%s) at %dx%d via %s (%s %d bpp) at %i FPS", camera_name_.c_str(),
-             video_device_name_.c_str(), image_width_, image_height_, io_method_name_.c_str(),
-             pixel_format_name_.c_str(), bits_per_pixel_, framerate_);
+    ROS_INFO("Starting '%s' (%s) at %dx%d via %s (%s %d bpp) at %i FPS",
+             camera_name_.c_str(), video_device_name_.c_str(), image_width_,
+             image_height_, io_method_name_.c_str(), pixel_format_name_.c_str(),
+             bits_per_pixel_, framerate_);
 
     // set the IO method
-    UsbCam::io_method io_method = UsbCam::io_method_from_string(io_method_name_);
-    if(io_method == UsbCam::IO_METHOD_UNKNOWN)
-    {
+    UsbCam::io_method io_method =
+        UsbCam::io_method_from_string(io_method_name_);
+    if (io_method == UsbCam::IO_METHOD_UNKNOWN) {
       ROS_FATAL("Unknown IO method '%s'", io_method_name_.c_str());
       node_.shutdown();
       return;
     }
 
     // set the pixel format
-    UsbCam::pixel_format pixel_format = UsbCam::pixel_format_from_string(pixel_format_name_);
-    if (pixel_format == UsbCam::PIXEL_FORMAT_UNKNOWN)
-    {
+    UsbCam::pixel_format pixel_format =
+        UsbCam::pixel_format_from_string(pixel_format_name_);
+    if (pixel_format == UsbCam::PIXEL_FORMAT_UNKNOWN) {
       ROS_FATAL("Unknown pixel format '%s'", pixel_format_name_.c_str());
       node_.shutdown();
       return;
     }
 
     // start the camera
-    cam_.start(video_device_name_.c_str(), io_method, pixel_format, bits_per_pixel_, image_width_,
-		     image_height_, framerate_);
+    cam_.start(video_device_name_.c_str(), io_method, pixel_format,
+               bits_per_pixel_, image_width_, image_height_, framerate_);
 
     // set camera parameters
-    if (brightness_ >= 0)
-    {
+    if (brightness_ >= 0) {
       cam_.set_v4l_parameter("brightness", brightness_);
     }
 
-    if (contrast_ >= 0)
-    {
+    if (contrast_ >= 0) {
       cam_.set_v4l_parameter("contrast", contrast_);
     }
 
-    if (saturation_ >= 0)
-    {
+    if (saturation_ >= 0) {
       cam_.set_v4l_parameter("saturation", saturation_);
     }
 
-    if (sharpness_ >= 0)
-    {
+    if (sharpness_ >= 0) {
       cam_.set_v4l_parameter("sharpness", sharpness_);
     }
 
-    if (gain_ >= 0)
-    {
+    if (gain_ >= 0) {
       cam_.set_v4l_parameter("gain", gain_);
     }
 
-    if (power_line_frequency_ >= 0)
-    {
+    if (power_line_frequency_ >= 0) {
       cam_.set_v4l_parameter("power_line_frequency", power_line_frequency_);
     }
 
-    if (gamma_ >= 0)
-    {
+    if (gamma_ >= 0) {
       cam_.set_v4l_parameter("gamma", gamma_);
     }
 
-    if (backlight_compensation_ >= 0)
-    {
+    if (backlight_compensation_ >= 0) {
       cam_.set_v4l_parameter("backlight_compensation", backlight_compensation_);
     }
 
     // check auto white balance
-    if (auto_white_balance_)
-    {
+    if (auto_white_balance_) {
       cam_.set_v4l_parameter("white_balance_temperature_auto", 1);
-    }
-    else
-    {
+    } else {
       cam_.set_v4l_parameter("white_balance_temperature_auto", 0);
       cam_.set_v4l_parameter("white_balance_temperature", white_balance_);
     }
 
     // Just loading the file configuration without reset exposure routine.
-    if (!autoexposure_)
-    {
+    if (!autoexposure_) {
       // turn off exposure control
       cam_.set_v4l_parameter("exposure_auto", AUTO_EXPOSURE_MANUAL_MODE);
       // change the exposure level
       cam_.set_v4l_parameter("exposure_absolute", exposure_);
-    }
-    else
-    {
+    } else {
       // turn on exposure auto control
-      cam_.set_v4l_parameter(
-        "exposure_auto",
-        AUTO_EXPOSURE_APERTURE_PRIORITY_MODE
-      );
+      cam_.set_v4l_parameter("exposure_auto",
+                             AUTO_EXPOSURE_APERTURE_PRIORITY_MODE);
     }
 
     // check auto focus
-    if (autofocus_)
-    {
+    if (autofocus_) {
       cam_.set_auto_focus(1);
       cam_.set_v4l_parameter("focus_auto", 1);
-    }
-    else
-    {
+    } else {
       cam_.set_v4l_parameter("focus_auto", 0);
-      if (focus_ >= 0)
-      {
+      if (focus_ >= 0) {
         cam_.set_v4l_parameter("focus_absolute", focus_);
       }
     }
@@ -314,35 +295,32 @@ public:
     expected_freq_ = static_cast<double>(framerate_);
     std::filesystem::path topic = ns;
     topic /= image_pub_.getTopic();
-    diag_freq_image_raw_ =
-        std::make_unique<misocpp::DiagnosticFrequency>(topic.c_str(), expected_freq_, expected_freq_);
+    diag_freq_image_raw_ = std::make_unique<misocpp::DiagnosticFrequency>(
+        topic.c_str(), expected_freq_, expected_freq_);
     ROS_ASSERT(diag_freq_image_raw_);
     std::string s(topic);
     s = s.erase(s.rfind('/'), std::string::npos);
     topic = s;
     topic /= "camera_info";
-    diag_freq_camera_info_ =
-        std::make_unique<misocpp::DiagnosticFrequency>(topic.c_str(), expected_freq_, expected_freq_);
+    diag_freq_camera_info_ = std::make_unique<misocpp::DiagnosticFrequency>(
+        topic.c_str(), expected_freq_, expected_freq_);
     ROS_ASSERT(diag_freq_camera_info_);
 
     enable_auto_reset_exposure_ = true;
     auto_reset_exposure_timer_ = node_.createTimer(
-      ros::Duration(auto_reset_exposure_period_),
-      boost::bind(&UsbCamNode::checkAutoResetExposure, this, _1)
-    );
+        ros::Duration(auto_reset_exposure_period_),
+        boost::bind(&UsbCamNode::checkAutoResetExposure, this, _1));
   }
 
-  virtual ~UsbCamNode()
-  {
-    cam_.shutdown();
-  }
+  virtual ~UsbCamNode() { cam_.shutdown(); }
 
-  bool take_and_send_image()
-  {
+  bool take_and_send_image() {
     // grab the image
-    if(!cam_.grab_image(&img_)) ros::shutdown();
+    if (!cam_.grab_image(&img_))
+      ros::shutdown();
     // grab the camera info
-    sensor_msgs::CameraInfoPtr ci(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
+    sensor_msgs::CameraInfoPtr ci(
+        new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
     ci->header.frame_id = img_.header.frame_id;
     ci->header.stamp = img_.header.stamp;
 
@@ -354,50 +332,41 @@ public:
     return true;
   }
 
-  void resetExposureSettings()
-  {
+  void resetExposureSettings() {
     cam_.is_changing_config(true);
-    cam_.set_v4l_parameter(
-      "exposure_auto",
-      AUTO_EXPOSURE_APERTURE_PRIORITY_MODE
-    );
+    cam_.set_v4l_parameter("exposure_auto",
+                           AUTO_EXPOSURE_APERTURE_PRIORITY_MODE);
     std::this_thread::sleep_for(
-      std::chrono::seconds{ WAIT_CHANGING_AUTO_EXPOSURE_SEC }
-    );
+        std::chrono::seconds{WAIT_CHANGING_AUTO_EXPOSURE_SEC});
     cam_.set_v4l_parameter("exposure_auto", AUTO_EXPOSURE_MANUAL_MODE);
     cam_.set_v4l_parameter("exposure_absolute", exposure_);
     cam_.is_changing_config(false);
   }
 
-  void checkAutoResetExposure(const ros::TimerEvent&)
-  {
-    if (enable_auto_reset_exposure_)
-    {
+  void checkAutoResetExposure(const ros::TimerEvent &) {
+    if (enable_auto_reset_exposure_) {
       resetExposureSettings();
     }
   }
 
-  bool spin()
-  {
+  bool spin() {
     ros::Rate loop_rate(this->framerate_);
-    while (node_.ok())
-    {
+    while (node_.ok()) {
       if (cam_.is_capturing() && !cam_.is_changing_config()) {
-        if (!take_and_send_image()) ROS_WARN("USB camera did not respond in time.");
+        if (!take_and_send_image())
+          ROS_WARN("USB camera did not respond in time.");
       }
       ros::spinOnce();
       heartbeat_.update();
       loop_rate.sleep();
-
     }
     return true;
   }
 };
 
-}
+} // namespace usb_cam
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
   ros::init(argc, argv, "usb_cam");
   usb_cam::UsbCamNode a;
   a.spin();
