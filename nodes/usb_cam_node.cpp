@@ -326,16 +326,11 @@ public:
     ROS_ASSERT(diag_freq_camera_info_);
 
     enable_auto_reset_exposure_ = true;
-    if (auto_reset_exposure_period_ > 0) {
-      auto_reset_exposure_timer_ = node_.createTimer(
-          ros::Duration(auto_reset_exposure_period_),
-          boost::bind(&UsbCamNode::checkAutoResetExposure, this, _1));
-    } else {
-      // Reset exposure once just in case it wasn't applied
-      std::this_thread::sleep_for(
-          std::chrono::seconds{WAIT_CHANGING_AUTO_EXPOSURE_SEC});
-      resetExposureSettings();
-    }
+    auto_reset_exposure_timer_ = node_.createTimer(
+      ros::Duration(auto_reset_exposure_period_),
+      boost::bind(&UsbCamNode::checkAutoResetExposure, this, _1),
+      auto_reset_exposure_period_ <= 0
+    );
   }
 
   virtual ~UsbCamNode()
