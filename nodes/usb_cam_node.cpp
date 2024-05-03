@@ -141,7 +141,7 @@ public:
     node_.param("focus", focus_, -1); //0-255, -1 "leave alone"
     // enable/disable autoexposure
     node_.param("autoexposure", autoexposure_, true);
-    node_.param("auto_reset_exposure_period", auto_reset_exposure_period_, AUTO_RESET_EXPOSURE_PERIOD);
+    node_.param("auto_reset_exposure_period", auto_reset_exposure_period_, AUTO_RESET_EXPOSURE_PERIOD); // No reset if < 0
     node_.param("exposure", exposure_, 100);
     node_.param("gain", gain_, -1); //0-100?, -1 "leave alone"
     // enable/disable auto white balance temperature
@@ -326,10 +326,16 @@ public:
     ROS_ASSERT(diag_freq_camera_info_);
 
     enable_auto_reset_exposure_ = true;
-    auto_reset_exposure_timer_ = node_.createTimer(
-      ros::Duration(auto_reset_exposure_period_),
-      boost::bind(&UsbCamNode::checkAutoResetExposure, this, _1)
-    );
+    if (auto_reset_exposure_period_ > 0) {
+      auto_reset_exposure_timer_ = node_.createTimer(
+          ros::Duration(auto_reset_exposure_period_),
+          boost::bind(&UsbCamNode::checkAutoResetExposure, this, _1));
+    } else {
+      // Reset exposure once just in case it wasn't applied
+      std::this_thread::sleep_for(
+          std::chrono::seconds{WAIT_CHANGING_AUTO_EXPOSURE_SEC});
+      resetExposureSettings();
+    }
   }
 
   virtual ~UsbCamNode()
