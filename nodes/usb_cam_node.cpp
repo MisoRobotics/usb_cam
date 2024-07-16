@@ -41,7 +41,9 @@
 #include <image_transport/image_transport.h>
 #include <camera_info_manager/camera_info_manager.h>
 #include <memory>
+#include <miso_msgs/CameraStatus.h>
 #include <sstream>
+#include <std_msgs/Header.h>
 #include <std_srvs/Empty.h>
 #include <std_srvs/SetBool.h>
 #include <thread>
@@ -57,13 +59,13 @@ const int AUTO_EXPOSURE_MANUAL_MODE = 1;
 const int AUTO_EXPOSURE_APERTURE_PRIORITY_MODE = 3;
 
 //! \brief Delay time in seconds to wait before set auto_exposure setting
-const int WAIT_CHANGING_AUTO_EXPOSURE_SEC = 2;
+const int WAIT_CHANGING_AUTO_EXPOSURE_SEC = 1;
 
 //! \brief Timer period in seconds between calls to reset camera exposure setting
 const double AUTO_RESET_EXPOSURE_PERIOD = 60.0;
 
 //! \brief Timer period in seconds between calls to reset camera exposure setting
-const double ONE_SHOT_RESET_EXPOSURE_WAIT = 5.0;
+const double ONE_SHOT_RESET_EXPOSURE_WAIT = 2.0;
 
 class UsbCamNode
 {
@@ -90,6 +92,9 @@ public:
       sharpness_, focus_, white_balance_, gain_, power_line_frequency_, gamma_, backlight_compensation_;
   bool autofocus_, autoexposure_, auto_white_balance_;
   boost::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
+
+  // Publishers
+  ros::Publisher cam_status_pub_;
 
   UsbCam cam_;
 
@@ -123,6 +128,12 @@ public:
     // advertise the main image topic
     image_transport::ImageTransport it(node_);
     image_pub_ = it.advertiseCamera("image_raw", 1);
+
+    cam_status_pub_ = node_.advertise<miso_msgs::CameraStatus>("status", 1, true);
+    miso_msgs::CameraStatus init_status;
+    init_status.header.stamp = ros::Time::now();
+    init_status.status = miso_msgs::CameraStatus::STARTING_UP;
+    cam_status_pub_.publish(init_status);
 
     // grab the parameters
     node_.param("serial_no", serial_number_, std::string(""));
@@ -381,6 +392,11 @@ public:
 
     // Set the manual exposure level
     cam_.set_v4l_parameter("exposure_time_absolute", exposure_);
+
+    miso_msgs::CameraStatus cam_status;
+    cam_status.header.stamp = ros::Time::now();
+    cam_status.status = miso_msgs::CameraStatus::READY;
+    cam_status_pub_.publish(cam_status);
   }
 
   void checkAutoResetExposure(const ros::TimerEvent&)
