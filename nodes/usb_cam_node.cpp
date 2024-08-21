@@ -336,7 +336,8 @@ public:
     std::string ns = ros::this_node::getNamespace();
     expected_freq_ = static_cast<double>(framerate_);
     std::filesystem::path topic = ns;
-    topic /= "image_raw";
+    topic /= image_pub_.getTopic();
+    ROS_INFO("image raw topicc %s", topic.c_str());
     diag_freq_image_raw_ =
         std::make_unique<misocpp::DiagnosticFrequency>(topic.c_str(), expected_freq_, expected_freq_);
     ROS_ASSERT(diag_freq_image_raw_);
@@ -344,6 +345,7 @@ public:
     s = s.erase(s.rfind('/'), std::string::npos);
     topic = s;
     topic /= "camera_info";
+    ROS_INFO("camera info topicc %s", topic.c_str());
     diag_freq_camera_info_ =
         std::make_unique<misocpp::DiagnosticFrequency>(topic.c_str(), expected_freq_, expected_freq_);
     ROS_ASSERT(diag_freq_camera_info_);
