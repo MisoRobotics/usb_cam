@@ -375,10 +375,10 @@ public:
     // publish the image
     image_pub_.publish(img_, *ci);
 
-    diag_freq_camera_info_->tick();
-    ROS_INFO("Published camera info diags tick");
     diag_freq_image_raw_->tick();
-    ROS_INFO("published image raw diags tick");
+    // ROS_INFO("published image raw diags tick");
+    diag_freq_camera_info_->tick();
+    // ROS_INFO("Published camera info diags tick");
 
     return true;
   }
