@@ -132,7 +132,7 @@ public:
     res.message = "";
     return true;
   }
-  
+
 
   UsbCamNode() :
       node_("~")
@@ -374,7 +374,7 @@ public:
 
     // publish the image
     image_pub_.publish(img_, *ci);
-    diag_freq_camera_info_->tick();
+    // diag_freq_camera_info_->tick();
     diag_freq_image_raw_->tick();
 
     return true;
