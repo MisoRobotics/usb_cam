@@ -336,7 +336,7 @@ public:
     std::string ns = ros::this_node::getNamespace();
     expected_freq_ = static_cast<double>(framerate_);
     std::filesystem::path topic = ns;
-    topic /= image_pub_.getTopic();
+    topic /= "image_raw";
     diag_freq_image_raw_ =
         std::make_unique<misocpp::DiagnosticFrequency>(topic.c_str(), expected_freq_, expected_freq_);
     ROS_ASSERT(diag_freq_image_raw_);
