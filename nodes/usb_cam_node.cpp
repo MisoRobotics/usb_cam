@@ -187,26 +187,15 @@ public:
 
     if (!serial_number_.empty())
     {
-      str_map map_dev_serial = get_serial_dev_info();
-      clear_unsupported_devices(map_dev_serial, pixel_format_name_);
-
-      bool found = false;
-      auto it = map_dev_serial.cbegin();
-      for (; it != map_dev_serial.cend(); ++it)
-      {
-        if (serial_number_ == it->second)
-        {
-          found = true;
-          video_device_name_ = it->first;
-          break;
-        }
-      }
-
-      if (!found)
+      std::string found_name = find_cam_with_sn(serial_number_, pixel_format_name_);
+      if (found_name.empty())
       {
         ROS_FATAL("USB camera with serial number '%s' cannot be found.", serial_number_.c_str());
         node_.shutdown();
         return;
+      } else
+      {
+        video_device_name_ = found_name;
       }
     }
 
@@ -360,6 +349,23 @@ public:
   virtual ~UsbCamNode()
   {
     cam_.shutdown();
+  }
+
+  std::string find_cam_with_sn(const std::string& sn, std::string pixel_format_name_)
+  {
+    str_map map_dev_serial = get_serial_dev_info();
+    clear_unsupported_devices(map_dev_serial, pixel_format_name_);
+
+    auto it = map_dev_serial.cbegin();
+    for (; it != map_dev_serial.cend(); ++it)
+    {
+      if (sn == it->second)
+      {
+        return it->first;
+      }
+    }
+
+    return "";
   }
 
   bool take_and_send_image()
