@@ -23,6 +23,20 @@ Changelog for package usb_cam
 * fix bug for byte count in a pixel (3 bytes not 24 bytes) (`#40 <https://github.com/ros-drivers/usb_cam/issues/40>`_ )
 * Contributors: Daniel Seifert, Eric Zavesky, Kei Okada, Ludovico Russo, Russell Toris, honeytrap15
 
+Forthcoming
+-----------
+* Merge pull request `#71 <https://github.com/MisoRobotics/usb_cam/issues/71>`_ from MisoRobotics/user/ajensen/update/codeowners
+  IN-2183: Update CODEOWNERS
+* Fix typo
+* Update CODEOWNERS
+* Merge pull request `#70 <https://github.com/MisoRobotics/usb_cam/issues/70>`_ from MisoRobotics/master
+  Backmerge 1.0.3 into develop for flippy-3.0.9.1.1-noetic
+* Backmerge release/1.0.3 into develop for flippy-3.0.9.1.1-noetic
+  Backmerge release candidate release/1.0.3 into develop.
+* Merge pull request `#67 <https://github.com/MisoRobotics/usb_cam/issues/67>`_ from MisoRobotics/master
+  Backmerge 1.0.2 into develop for flippy-3.0.6-noetic
+* Contributors: Arild Jensen, Sana Sarfraz, Zach Zweig Vinegar
+
 1.0.3 (2024-10-16)
 ------------------
 * Merge pull request `#68 <https://github.com/MisoRobotics/usb_cam/issues/68>`_ from MisoRobotics/user/hjoe72/fix/usb-cam-sn
