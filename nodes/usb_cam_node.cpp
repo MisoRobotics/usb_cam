@@ -40,8 +40,10 @@
 #include <usb_cam/usb_cam.h>
 #include <image_transport/image_transport.h>
 #include <camera_info_manager/camera_info_manager.h>
+#include <algorithm>
 #include <memory>
 #include <sstream>
+#include <vector>
 #include <std_srvs/Empty.h>
 #include <std_srvs/SetBool.h>
 #include <thread>
@@ -96,13 +98,13 @@ public:
 
   ros::ServiceServer service_start_, service_stop_, service_auto_reset_exposure_, reset_exposure_;
 
-  bool service_start_cap(std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
+  bool service_start_cap(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
   {
     cam_.start_capturing();
     return true;
   }
 
-  bool reset_exposure_call(std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
+  bool reset_exposure_call(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
   {
     ros::Rate srv_rate(5);
     bool timeout = 20.0;
@@ -119,7 +121,7 @@ public:
     return true;
   }
 
-  bool service_stop_cap( std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
+  bool service_stop_cap(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
   {
     cam_.stop_capturing();
     return true;
@@ -190,23 +192,43 @@ public:
       str_map map_dev_serial = get_serial_dev_info();
       clear_unsupported_devices(map_dev_serial, pixel_format_name_);
 
-      bool found = false;
-      auto it = map_dev_serial.cbegin();
-      for (; it != map_dev_serial.cend(); ++it)
+      std::vector<std::string> serial_matches;
+      for (const auto& dev_serial : map_dev_serial)
       {
-        if (serial_number_ == it->second)
+        if (serial_number_ == dev_serial.second)
         {
-          found = true;
-          video_device_name_ = it->first;
-          break;
+          serial_matches.push_back(dev_serial.first);
         }
       }
 
-      if (!found)
+      if (serial_matches.empty())
       {
         ROS_FATAL("USB camera with serial number '%s' cannot be found.", serial_number_.c_str());
         node_.shutdown();
         return;
+      }
+
+      if (serial_matches.size() == 1)
+      {
+        video_device_name_ = serial_matches.front();
+      }
+      else
+      {
+        // Several V4L nodes can report the same USB serial; honor explicit video_device in that case.
+        auto picked = std::find(serial_matches.cbegin(), serial_matches.cend(), video_device_name_);
+        if (picked == serial_matches.cend())
+        {
+          std::ostringstream oss;
+          oss << "USB serial '" << serial_number_ << "' matches several devices; set video_device "
+                 "to the capture node for this camera. Candidates:";
+          for (const auto& path : serial_matches)
+          {
+            oss << ' ' << path;
+          }
+          ROS_FATAL("%s", oss.str().c_str());
+          node_.shutdown();
+          return;
+        }
       }
     }
 
