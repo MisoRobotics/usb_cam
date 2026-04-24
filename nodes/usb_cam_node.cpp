@@ -87,7 +87,8 @@ public:
   std::string serial_number_;
   bool streaming_status_;
   int image_width_, image_height_, framerate_, bits_per_pixel_, exposure_, brightness_, contrast_, saturation_,
-      sharpness_, focus_, white_balance_, gain_, power_line_frequency_, gamma_, backlight_compensation_;
+      sharpness_, focus_, white_balance_, gain_, power_line_frequency_, gamma_, backlight_compensation_,
+      exposure_dynamic_framerate_;
   bool autofocus_, autoexposure_, auto_white_balance_;
   bool init_cam_reset_;
   boost::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
@@ -163,6 +164,8 @@ public:
     node_.param("autoexposure", autoexposure_, true);
     node_.param("auto_reset_exposure_period", auto_reset_exposure_period_, AUTO_RESET_EXPOSURE_PERIOD); // No reset if < 0
     node_.param("exposure", exposure_, 100);
+    // 0/1: V4L2 exposure_dynamic_framerate; -1 = leave at driver default
+    node_.param("exposure_dynamic_framerate", exposure_dynamic_framerate_, -1);
     node_.param("gain", gain_, -1); //0-100?, -1 "leave alone"
     // enable/disable auto white balance temperature
     node_.param("auto_white_balance", auto_white_balance_, true);
@@ -187,26 +190,95 @@ public:
 
     if (!serial_number_.empty())
     {
-      str_map map_dev_serial = get_serial_dev_info();
-      clear_unsupported_devices(map_dev_serial, pixel_format_name_);
+      // When several USB cameras share the same USB serial (common on HB cams), udev-based
+      // lookup returns the first matching /dev/video* only. If launch passes a stable path
+      // (/dev/v4l/by-path/... or /dev/v4l/by-id/...), honor it instead of overwriting.
+      const bool explicit_usb_path =
+          video_device_name_.find("/by-path/") != std::string::npos ||
+          video_device_name_.find("/by-id/") != std::string::npos;
 
-      bool found = false;
-      auto it = map_dev_serial.cbegin();
-      for (; it != map_dev_serial.cend(); ++it)
+      if (explicit_usb_path)
       {
-        if (serial_number_ == it->second)
+        std::error_code ec;
+        if (!std::filesystem::exists(video_device_name_, ec))
         {
-          found = true;
-          video_device_name_ = it->first;
-          break;
+          ROS_FATAL("video_device does not exist: %s", video_device_name_.c_str());
+          node_.shutdown();
+          return;
         }
-      }
+        const std::string requested_path = video_device_name_;
+        const std::filesystem::path canonical =
+            std::filesystem::weakly_canonical(video_device_name_, ec);
+        if (ec)
+        {
+          ROS_FATAL("Could not resolve video_device '%s': %s", requested_path.c_str(), ec.message().c_str());
+          node_.shutdown();
+          return;
+        }
+        video_device_name_ = canonical.string();
 
-      if (!found)
+        str_map map_fmt_check;
+        map_fmt_check[video_device_name_] = serial_number_;
+        clear_unsupported_devices(map_fmt_check, pixel_format_name_);
+        if (map_fmt_check.empty())
+        {
+          ROS_FATAL(
+              "USB camera at '%s' (resolved to '%s') does not support pixel format '%s'.",
+              requested_path.c_str(),
+              video_device_name_.c_str(),
+              pixel_format_name_.c_str());
+          node_.shutdown();
+          return;
+        }
+
+        str_map map_dev_serial = get_serial_dev_info();
+        clear_unsupported_devices(map_dev_serial, pixel_format_name_);
+        const auto got = map_dev_serial.find(video_device_name_);
+        if (got != map_dev_serial.end() && got->second != serial_number_)
+        {
+          ROS_WARN(
+              "serial_no '%s' does not match udev serial '%s' for '%s' (from '%s'); "
+              "using explicit video_device (by-path/by-id).",
+              serial_number_.c_str(),
+              got->second.c_str(),
+              video_device_name_.c_str(),
+              requested_path.c_str());
+        }
+        else if (got == map_dev_serial.end())
+        {
+          ROS_WARN(
+              "Could not verify udev serial for '%s' (from '%s'); opening anyway.",
+              video_device_name_.c_str(),
+              requested_path.c_str());
+        }
+        ROS_INFO(
+            "Using explicit video_device (stable USB path): %s -> %s",
+            requested_path.c_str(),
+            video_device_name_.c_str());
+      }
+      else
       {
-        ROS_FATAL("USB camera with serial number '%s' cannot be found.", serial_number_.c_str());
-        node_.shutdown();
-        return;
+        str_map map_dev_serial = get_serial_dev_info();
+        clear_unsupported_devices(map_dev_serial, pixel_format_name_);
+
+        bool found = false;
+        auto it = map_dev_serial.cbegin();
+        for (; it != map_dev_serial.cend(); ++it)
+        {
+          if (serial_number_ == it->second)
+          {
+            found = true;
+            video_device_name_ = it->first;
+            break;
+          }
+        }
+
+        if (!found)
+        {
+          ROS_FATAL("USB camera with serial number '%s' cannot be found.", serial_number_.c_str());
+          node_.shutdown();
+          return;
+        }
       }
     }
 
@@ -289,6 +361,11 @@ public:
       cam_.set_v4l_parameter("backlight_compensation", backlight_compensation_);
     }
 
+    if (exposure_dynamic_framerate_ >= 0)
+    {
+      cam_.set_v4l_parameter("exposure_dynamic_framerate", exposure_dynamic_framerate_);
+    }
+
     // check auto white balance
     if (auto_white_balance_)
     {
@@ -348,13 +425,18 @@ public:
     ROS_ASSERT(diag_freq_camera_info_);
 
     enable_auto_reset_exposure_ = true;
-    bool timer_oneshot = auto_reset_exposure_period_ <= 0;
-    double timer_period = timer_oneshot ? ONE_SHOT_RESET_EXPOSURE_WAIT : auto_reset_exposure_period_;
-    auto_reset_exposure_timer_ = node_.createTimer(
-      ros::Duration(timer_period),
-      boost::bind(&UsbCamNode::checkAutoResetExposure, this, _1),
-      timer_oneshot
-    );
+    // auto_reset_exposure_period < 0 disables the reset entirely (no timer is created).
+    // == 0 fires the reset once as a one-shot; > 0 repeats at that period.
+    if (auto_reset_exposure_period_ >= 0)
+    {
+      bool timer_oneshot = auto_reset_exposure_period_ == 0;
+      double timer_period = timer_oneshot ? ONE_SHOT_RESET_EXPOSURE_WAIT : auto_reset_exposure_period_;
+      auto_reset_exposure_timer_ = node_.createTimer(
+        ros::Duration(timer_period),
+        boost::bind(&UsbCamNode::checkAutoResetExposure, this, _1),
+        timer_oneshot
+      );
+    }
   }
 
   virtual ~UsbCamNode()
