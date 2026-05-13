@@ -291,9 +291,18 @@ public:
       return;
     }
 
+    const bool fryer_mjpeg_passthrough =
+        (pixel_format == UsbCam::PIXEL_FORMAT_MJPEG) &&
+        (camera_name_.size() >= 9 && camera_name_.compare(0, 9, "fryer_cam_") == 0);
+
     // start the camera
     cam_.start(video_device_name_.c_str(), io_method, pixel_format, bits_per_pixel_, image_width_,
-		     image_height_, framerate_);
+		     image_height_, framerate_, fryer_mjpeg_passthrough);
+
+    if (fryer_mjpeg_passthrough)
+    {
+      ROS_INFO("MJPEG passthrough enabled for %s (encoding mjpeg on image_raw)", camera_name_.c_str());
+    }
 
     // set camera parameters
     if (brightness_ >= 0)

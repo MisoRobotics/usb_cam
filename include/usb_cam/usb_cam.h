@@ -54,6 +54,7 @@ extern "C"
 
 #include <string>
 #include <sstream>
+#include <vector>
 
 #include <sensor_msgs/Image.h>
 
@@ -74,9 +75,10 @@ class UsbCam {
   UsbCam();
   ~UsbCam();
 
-  // start camera
+  // start camera (mjpeg_passthrough: publish MJPEG bytes on sensor_msgs/Image, no CPU decode in usb_cam)
   void start(const std::string& dev, io_method io, pixel_format pf,
-		    int bits_per_pixel, int image_width, int image_height, int framerate);
+		    int bits_per_pixel, int image_width, int image_height, int framerate,
+		    bool mjpeg_passthrough = false);
   // shutdown camera
   void shutdown(void);
 
@@ -154,7 +156,13 @@ class UsbCam {
   struct SwsContext *video_sws_;
   camera_image_t *image_;
 
+  bool mjpeg_passthrough_;
+  std::vector<uint8_t> mjpeg_compressed_buf_;
+  int mjpeg_sws_in_w_;
+  int mjpeg_sws_in_h_;
+  AVPixelFormat mjpeg_sws_in_fmt_;
 };
+
 
 }
 

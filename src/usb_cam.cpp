@@ -452,7 +452,6 @@ void UsbCam::mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels)
 			      NULL,  NULL);
   sws_scale(video_sws_, avframe_camera_->data, avframe_camera_->linesize, 0, ysize, avframe_rgb_->data,
             avframe_rgb_->linesize);
-  sws_freeContext(video_sws_);
 
   int size = avpicture_layout((AVPicture *)avframe_rgb_, AV_PIX_FMT_RGB24, xsize, ysize, (uint8_t *)RGB, avframe_rgb_size_);
   if (size != avframe_rgb_size_)
@@ -478,7 +477,17 @@ void UsbCam::process_image(const void * src, int len, camera_image_t *dest)
   else if (pixelformat_ == V4L2_PIX_FMT_UYVY)
     uyvy2rgb((char*)src, dest->image, dest->width * dest->height);
   else if (pixelformat_ == V4L2_PIX_FMT_MJPEG)
-    mjpeg2rgb((char*)src, len, dest->image, dest->width * dest->height);
+  {
+    if (mjpeg_passthrough_)
+    {
+      mjpeg_compressed_buf_.assign(static_cast<const uint8_t*>(src),
+                                   static_cast<const uint8_t*>(src) + len);
+    }
+    else
+    {
+      mjpeg2rgb((char*)src, len, dest->image, dest->width * dest->height);
+    }
+  }
   else if (pixelformat_ == V4L2_PIX_FMT_RGB24)
     rgb242rgb((char*)src, dest->image, dest->width * dest->height);
   else if (pixelformat_ == V4L2_PIX_FMT_GREY)
@@ -1015,12 +1024,13 @@ void UsbCam::open_device(void)
 
 void UsbCam::start(const std::string& dev, io_method io_method,
 		   pixel_format pixel_format, int bits_per_pixel, int image_width, int image_height,
-		   int framerate)
+		   int framerate, bool mjpeg_passthrough)
 {
   camera_dev_ = dev;
 
   io_ = io_method;
   monochrome_ = false;
+  mjpeg_passthrough_ = false;
   if (pixel_format == PIXEL_FORMAT_YUYV)
     pixelformat_ = V4L2_PIX_FMT_YUYV;
   else if (pixel_format == PIXEL_FORMAT_UYVY)
@@ -1028,7 +1038,11 @@ void UsbCam::start(const std::string& dev, io_method io_method,
   else if (pixel_format == PIXEL_FORMAT_MJPEG)
   {
     pixelformat_ = V4L2_PIX_FMT_MJPEG;
-    init_mjpeg_decoder(bits_per_pixel, image_width, image_height);
+    mjpeg_passthrough_ = mjpeg_passthrough;
+    if (!mjpeg_passthrough_)
+    {
+      init_mjpeg_decoder(bits_per_pixel, image_width, image_height);
+    }
   }
   else if (pixel_format == PIXEL_FORMAT_YUVMONO10)
   {
@@ -1073,6 +1087,15 @@ void UsbCam::shutdown(void)
   uninit_device();
   close_device();
 
+  if (video_sws_)
+  {
+    sws_freeContext(video_sws_);
+    video_sws_ = NULL;
+  }
+  mjpeg_sws_in_w_ = 0;
+  mjpeg_sws_in_h_ = 0;
+  mjpeg_sws_in_fmt_ = AV_PIX_FMT_NONE;
+
   if (avcodec_context_)
   {
     avcodec_close(avcodec_context_);
@@ -1096,6 +1119,16 @@ bool UsbCam::grab_image(sensor_msgs::Image* msg)
   if (!grab_image()) return false;
   // stamp the image
   msg->header.stamp = ros::Time::now();
+  if (mjpeg_passthrough_ && pixelformat_ == V4L2_PIX_FMT_MJPEG)
+  {
+    msg->height = image_->height;
+    msg->width = image_->width;
+    msg->encoding = "mjpeg";
+    msg->is_bigendian = false;
+    msg->step = static_cast<uint32_t>(mjpeg_compressed_buf_.size());
+    msg->data.swap(mjpeg_compressed_buf_);
+    return true;
+  }
   // fill the info
   if (monochrome_)
   {
