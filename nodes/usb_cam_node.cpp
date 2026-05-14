@@ -42,7 +42,6 @@
 #include <camera_info_manager/camera_info_manager.h>
 #include <memory>
 #include <sstream>
-#include <vector>
 #include <std_srvs/Empty.h>
 #include <std_srvs/SetBool.h>
 #include <thread>
@@ -50,22 +49,6 @@
 #include <misocpp/diagnostic_updater_wrapper.h>
 
 namespace usb_cam {
-
-namespace
-{
-// udev lists e.g. /dev/video0; flippy-config may use /dev/v4l/by-path/... symlinks to the same node.
-std::string resolve_v4l_device_path(const std::string& p)
-{
-  try
-  {
-    return std::filesystem::weakly_canonical(p).string();
-  }
-  catch (const std::exception&)
-  {
-    return p;
-  }
-}
-}  // namespace
 
 //! \brief Manual Mode on V4L2 auto_exposure setting
 const int AUTO_EXPOSURE_MANUAL_MODE = 1;
@@ -113,13 +96,13 @@ public:
 
   ros::ServiceServer service_start_, service_stop_, service_auto_reset_exposure_, reset_exposure_;
 
-  bool service_start_cap(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
+  bool service_start_cap(std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
   {
     cam_.start_capturing();
     return true;
   }
 
-  bool reset_exposure_call(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
+  bool reset_exposure_call(std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
   {
     ros::Rate srv_rate(5);
     bool timeout = 20.0;
@@ -136,7 +119,7 @@ public:
     return true;
   }
 
-  bool service_stop_cap(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
+  bool service_stop_cap( std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
   {
     cam_.stop_capturing();
     return true;
@@ -207,53 +190,23 @@ public:
       str_map map_dev_serial = get_serial_dev_info();
       clear_unsupported_devices(map_dev_serial, pixel_format_name_);
 
-      std::vector<std::string> serial_matches;
-      for (const auto& dev_serial : map_dev_serial)
+      bool found = false;
+      auto it = map_dev_serial.cbegin();
+      for (; it != map_dev_serial.cend(); ++it)
       {
-        if (serial_number_ == dev_serial.second)
+        if (serial_number_ == it->second)
         {
-          serial_matches.push_back(dev_serial.first);
+          found = true;
+          video_device_name_ = it->first;
+          break;
         }
       }
 
-      if (serial_matches.empty())
+      if (!found)
       {
         ROS_FATAL("USB camera with serial number '%s' cannot be found.", serial_number_.c_str());
         node_.shutdown();
         return;
-      }
-
-      if (serial_matches.size() == 1)
-      {
-        video_device_name_ = serial_matches.front();
-      }
-      else
-      {
-        // Several V4L nodes can report the same USB serial; keep the `video_device` param (e.g. by-path)
-        // when it resolves to the same dev node as one of the udev entries.
-        const std::string wanted_resolved = resolve_v4l_device_path(video_device_name_);
-        bool device_ok = false;
-        for (const auto& path : serial_matches)
-        {
-          if (resolve_v4l_device_path(path) == wanted_resolved)
-          {
-            device_ok = true;
-            break;
-          }
-        }
-        if (!device_ok)
-        {
-          std::ostringstream oss;
-          oss << "USB serial '" << serial_number_ << "' matches several devices; set per-camera video_device "
-                 "in world_launch (e.g. /dev/v4l/by-path/...). Candidates:";
-          for (const auto& path : serial_matches)
-          {
-            oss << ' ' << path;
-          }
-          ROS_FATAL("%s", oss.str().c_str());
-          node_.shutdown();
-          return;
-        }
       }
     }
 

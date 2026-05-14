@@ -398,6 +398,7 @@ int UsbCam::init_mjpeg_decoder(int bits_per_pixel, int image_width, int image_he
   avcodec_context_->codec_type = AVMEDIA_TYPE_VIDEO;
 #endif
 
+  avframe_camera_size_ = avpicture_get_size(avcodec_pixel_format, image_width, image_height);
   avframe_rgb_size_ = avpicture_get_size(AV_PIX_FMT_RGB24, image_width, image_height);
 
   /* open it */
