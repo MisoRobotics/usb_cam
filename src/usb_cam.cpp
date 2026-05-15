@@ -51,6 +51,7 @@
 #include <ros/ros.h>
 #include <boost/lexical_cast.hpp>
 #include <sensor_msgs/fill_image.h>
+#include <sensor_msgs/CompressedImage.h>
 
 #include <usb_cam/usb_cam.h>
 
@@ -357,7 +358,7 @@ UsbCam::UsbCam()
   : io_(IO_METHOD_MMAP), fd_(-1), buffers_(NULL), n_buffers_(0), avframe_camera_(NULL),
     avframe_rgb_(NULL), avcodec_(NULL), avoptions_(NULL), avcodec_context_(NULL),
     avframe_camera_size_(0), avframe_rgb_size_(0), video_sws_(NULL), image_(NULL),
-    is_capturing_(false), is_changing_config_(false) {
+    is_capturing_(false), is_changing_config_(false), mjpeg_passthrough_(false) {
 }
 UsbCam::~UsbCam()
 {
@@ -468,6 +469,22 @@ void UsbCam::mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels)
   }
 }
 
+void UsbCam::deliver_frame(const void *src, int len)
+{
+  if (pixelformat_ == V4L2_PIX_FMT_MJPEG && mjpeg_passthrough_)
+  {
+    mjpeg_frame_data_.resize(static_cast<size_t>(len));
+    if (len > 0 && src != nullptr)
+    {
+      memcpy(mjpeg_frame_data_.data(), src, static_cast<size_t>(len));
+    }
+  }
+  else
+  {
+    process_image(src, len, image_);
+  }
+}
+
 void UsbCam::process_image(const void * src, int len, camera_image_t *dest)
 {
   if (pixelformat_ == V4L2_PIX_FMT_YUYV)
@@ -518,7 +535,7 @@ int UsbCam::read_frame()
         }
       }
 
-      process_image(buffers_[0].start, len, image_);
+      deliver_frame(buffers_[0].start, len);
 
       break;
 
@@ -547,7 +564,7 @@ int UsbCam::read_frame()
 
       assert(buf.index < n_buffers_);
       len = buf.bytesused;
-      process_image(buffers_[buf.index].start, len, image_);
+      deliver_frame(buffers_[buf.index].start, len);
 
       if (-1 == xioctl(fd_, VIDIOC_QBUF, &buf))
         errno_exit("VIDIOC_QBUF");
@@ -583,7 +600,7 @@ int UsbCam::read_frame()
 
       assert(i < n_buffers_);
       len = buf.bytesused;
-      process_image((void *)buf.m.userptr, len, image_);
+      deliver_frame((void *)buf.m.userptr, len);
 
       if (-1 == xioctl(fd_, VIDIOC_QBUF, &buf))
         errno_exit("VIDIOC_QBUF");
@@ -1034,7 +1051,10 @@ void UsbCam::start(const std::string& dev, io_method io_method,
   else if (pixel_format == PIXEL_FORMAT_MJPEG)
   {
     pixelformat_ = V4L2_PIX_FMT_MJPEG;
-    init_mjpeg_decoder(bits_per_pixel, image_width, image_height);
+    if (!mjpeg_passthrough_)
+    {
+      init_mjpeg_decoder(bits_per_pixel, image_width, image_height);
+    }
   }
   else if (pixel_format == PIXEL_FORMAT_YUVMONO10)
   {
@@ -1067,10 +1087,18 @@ void UsbCam::start(const std::string& dev, io_method io_method,
   image_->height = image_height;
   image_->bytes_per_pixel = 3;      //corrected 11/10/15 (BYTES not BITS per pixel)
 
-  image_->image_size = image_->width * image_->height * image_->bytes_per_pixel;
   image_->is_new = 0;
-  image_->image = (char *)calloc(image_->image_size, sizeof(char));
-  memset(image_->image, 0, image_->image_size * sizeof(char));
+  if (mjpeg_passthrough_ && pixelformat_ == V4L2_PIX_FMT_MJPEG)
+  {
+    image_->image_size = 0;
+    image_->image = nullptr;
+  }
+  else
+  {
+    image_->image_size = image_->width * image_->height * image_->bytes_per_pixel;
+    image_->image = (char *)calloc(image_->image_size, sizeof(char));
+    memset(image_->image, 0, image_->image_size * sizeof(char));
+  }
 }
 
 void UsbCam::shutdown(void)
@@ -1091,13 +1119,24 @@ void UsbCam::shutdown(void)
   if (avframe_rgb_)
     av_free(avframe_rgb_);
   avframe_rgb_ = NULL;
-  if(image_)
+  if (image_)
+  {
+    if (image_->image)
+      free(image_->image);
     free(image_);
+  }
   image_ = NULL;
 }
 
 bool UsbCam::grab_image(sensor_msgs::Image* msg)
 {
+  if (pixelformat_ == V4L2_PIX_FMT_MJPEG && mjpeg_passthrough_)
+  {
+    ROS_ERROR_THROTTLE(
+        5.0,
+        "grab_image(sensor_msgs::Image): MJPEG passthrough is enabled; use grab_compressed_image instead.");
+    return false;
+  }
   // grab the image
   if (!grab_image()) return false;
   // stamp the image
@@ -1113,6 +1152,29 @@ bool UsbCam::grab_image(sensor_msgs::Image* msg)
     fillImage(*msg, "rgb8", image_->height, image_->width, 3 * image_->width,
         image_->image);
   }
+  return true;
+}
+
+bool UsbCam::grab_compressed_image(sensor_msgs::CompressedImage* msg)
+{
+  if (!(pixelformat_ == V4L2_PIX_FMT_MJPEG && mjpeg_passthrough_))
+  {
+    ROS_ERROR_THROTTLE(
+        5.0,
+        "grab_compressed_image: requires pixel_format mjpeg and mjpeg_passthrough enabled before start()");
+    return false;
+  }
+  if (msg == nullptr)
+  {
+    return false;
+  }
+  if (!grab_image())
+  {
+    return false;
+  }
+  msg->header.stamp = ros::Time::now();
+  msg->format = "jpeg";
+  msg->data = mjpeg_frame_data_;
   return true;
 }
 

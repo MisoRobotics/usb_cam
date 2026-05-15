@@ -34,12 +34,14 @@
 *
 *********************************************************************/
 
+#include <memory>
 #include <filesystem>
 
 #include <ros/ros.h>
 #include <usb_cam/usb_cam.h>
 #include <image_transport/image_transport.h>
 #include <camera_info_manager/camera_info_manager.h>
+#include <sensor_msgs/CompressedImage.h>
 #include <memory>
 #include <sstream>
 #include <std_srvs/Empty.h>
@@ -80,7 +82,11 @@ public:
 
   // shared image message
   sensor_msgs::Image img_;
-  image_transport::CameraPublisher image_pub_;
+  std::unique_ptr<image_transport::CameraPublisher> image_pub_;
+  bool mjpeg_passthrough_{ false };
+  sensor_msgs::CompressedImage compressed_img_;
+  ros::Publisher compressed_pub_;
+  ros::Publisher camera_info_pub_;
 
   // parameters
   std::string video_device_name_, io_method_name_, pixel_format_name_, camera_name_, camera_info_url_;
@@ -137,11 +143,7 @@ public:
   UsbCamNode() :
       node_("~")
   {
-    // advertise the main image topic
-    image_transport::ImageTransport it(node_);
-    image_pub_ = it.advertiseCamera("image_raw", 1);
-
-    // grab the parameters
+    // grab the parameters (before image_transport publishers)
     node_.param("serial_no", serial_number_, std::string(""));
     node_.param("video_device", video_device_name_, std::string("/dev/video0"));
     node_.param("brightness", brightness_, -1); //0-255, -1 "leave alone"
@@ -155,6 +157,7 @@ public:
     node_.param("framerate", framerate_, 30);
     // possible values: yuyv, uyvy, mjpeg, yuvmono10, rgb24
     node_.param("pixel_format", pixel_format_name_, std::string("mjpeg"));
+    node_.param("mjpeg_passthrough", mjpeg_passthrough_, false);
     node_.param("bits_per_pixel", bits_per_pixel_, 12);
     // enable/disable autofocus
     node_.param("autofocus", autofocus_, false);
@@ -175,7 +178,32 @@ public:
     node_.param("camera_frame_id", img_.header.frame_id, std::string("head_camera"));
     node_.param("camera_name", camera_name_, std::string("head_camera"));
     node_.param("camera_info_url", camera_info_url_, std::string(""));
+
+    if (mjpeg_passthrough_)
+    {
+      if (UsbCam::pixel_format_from_string(pixel_format_name_) != UsbCam::PIXEL_FORMAT_MJPEG)
+      {
+        ROS_FATAL("mjpeg_passthrough:=true requires pixel_format mjpeg (got '%s').", pixel_format_name_.c_str());
+        node_.shutdown();
+        return;
+      }
+    }
+
     cinfo_.reset(new camera_info_manager::CameraInfoManager(node_, camera_name_, camera_info_url_));
+
+    image_transport::ImageTransport it(node_);
+    if (!mjpeg_passthrough_)
+    {
+      image_pub_ = std::make_unique<image_transport::CameraPublisher>(it.advertiseCamera("image_raw", 1));
+    }
+    else
+    {
+      compressed_pub_ = node_.advertise<sensor_msgs::CompressedImage>("image_raw/compressed", 1);
+      camera_info_pub_ = node_.advertise<sensor_msgs::CameraInfo>("camera_info", 1);
+      ROS_WARN(
+          "usb_cam: mjpeg_passthrough enabled — publishing ~/image_raw/compressed (jpeg) and ~/camera_info only. "
+          "Use a single GPU decoder downstream; avoid multiple JPEG decompressors on this stream.");
+    }
 
     init_cam_reset_ = false;
 
@@ -245,6 +273,7 @@ public:
     }
 
     // start the camera
+    cam_.set_mjpeg_passthrough(mjpeg_passthrough_);
     cam_.start(video_device_name_.c_str(), io_method, pixel_format, bits_per_pixel_, image_width_,
 		     image_height_, framerate_);
 
@@ -335,7 +364,14 @@ public:
     std::string ns = ros::this_node::getNamespace();
     expected_freq_ = static_cast<double>(framerate_);
     std::filesystem::path topic = ns;
-    topic /= image_pub_.getTopic();
+    if (image_pub_)
+    {
+      topic /= image_pub_->getTopic();
+    }
+    else
+    {
+      topic /= "image_raw/compressed";
+    }
     diag_freq_image_raw_ =
         std::make_unique<misocpp::DiagnosticFrequency>(topic.c_str(), expected_freq_, expected_freq_);
     ROS_ASSERT(diag_freq_image_raw_);
@@ -364,15 +400,34 @@ public:
 
   bool take_and_send_image()
   {
-    // grab the image
-    if(!cam_.grab_image(&img_)) ros::shutdown();
-    // grab the camera info
     sensor_msgs::CameraInfoPtr ci(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
+
+    if (mjpeg_passthrough_)
+    {
+      if (!cam_.grab_compressed_image(&compressed_img_))
+      {
+        ros::shutdown();
+        return false;
+      }
+      compressed_img_.header.frame_id = img_.header.frame_id;
+      ci->header.frame_id = compressed_img_.header.frame_id;
+      ci->header.stamp = compressed_img_.header.stamp;
+      compressed_pub_.publish(compressed_img_);
+      camera_info_pub_.publish(*ci);
+      diag_freq_camera_info_->tick();
+      diag_freq_image_raw_->tick();
+      return true;
+    }
+
+    if (!cam_.grab_image(&img_))
+    {
+      ros::shutdown();
+      return false;
+    }
     ci->header.frame_id = img_.header.frame_id;
     ci->header.stamp = img_.header.stamp;
 
-    // publish the image
-    image_pub_.publish(img_, *ci);
+    image_pub_->publish(img_, *ci);
     diag_freq_camera_info_->tick();
     diag_freq_image_raw_->tick();
 

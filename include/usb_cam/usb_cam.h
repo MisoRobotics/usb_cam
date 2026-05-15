@@ -54,8 +54,10 @@ extern "C"
 
 #include <string>
 #include <sstream>
+#include <vector>
 
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/CompressedImage.h>
 
 namespace usb_cam {
 
@@ -82,6 +84,11 @@ class UsbCam {
 
   // grabs a new image from the camera
   bool grab_image(sensor_msgs::Image* image);
+
+  /** MJPEG byte passthrough (no CPU decode). Call set_mjpeg_passthrough(true) before start(). */
+  bool grab_compressed_image(sensor_msgs::CompressedImage* image);
+
+  void set_mjpeg_passthrough(bool enabled) { mjpeg_passthrough_ = enabled; }
 
   // enables/disable auto focus
   void set_auto_focus(int value);
@@ -125,6 +132,7 @@ class UsbCam {
   int init_mjpeg_decoder(int bits_per_pixel, int image_width, int image_height);
   void mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels);
   void process_image(const void * src, int len, camera_image_t *dest);
+  void deliver_frame(const void *src, int len);
   int read_frame();
   void uninit_device(void);
   void init_read(unsigned int buffer_size);
@@ -155,7 +163,10 @@ class UsbCam {
   struct SwsContext *video_sws_;
   camera_image_t *image_;
 
+  bool mjpeg_passthrough_;
+  std::vector<uint8_t> mjpeg_frame_data_;
 };
+
 
 }
 

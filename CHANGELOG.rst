@@ -2,6 +2,10 @@
 Changelog for package usb_cam
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Add optional ``mjpeg_passthrough`` parameter: publish ``image_raw/compressed`` (raw V4L MJPEG frame bytes, ``format: jpeg``) and ``camera_info`` without CPU decode; ``image_raw`` is not advertised in this mode.
+
 0.3.6 (2017-06-15)
 ------------------
 * .travis.yml: udpate to trusty
