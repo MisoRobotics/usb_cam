@@ -36,6 +36,10 @@
 
 #include <filesystem>
 
+#include <algorithm>
+#include <cmath>
+#include <mutex>
+
 #include <ros/ros.h>
 #include <usb_cam/usb_cam.h>
 #include <image_transport/image_transport.h>
@@ -46,6 +50,7 @@
 #include <std_srvs/Empty.h>
 #include <std_srvs/SetBool.h>
 #include <thread>
+#include <sensor_msgs/JointState.h>
 #include <usb_cam/device_utils.h>
 #include <misocpp/diagnostic_updater_wrapper.h>
 
@@ -64,6 +69,81 @@ std::string resolve_v4l_device_path(const std::string& p)
   {
     return p;
   }
+}
+
+bool getOrderedJointPositions(const sensor_msgs::JointState& msg,
+                              const std::vector<std::string>& joint_names,
+                              std::vector<double>* positions)
+{
+  if (!positions)
+  {
+    return false;
+  }
+  positions->clear();
+  positions->reserve(joint_names.size());
+  for (const auto& joint_name : joint_names)
+  {
+    const auto it = std::find(msg.name.begin(), msg.name.end(), joint_name);
+    if (it == msg.name.end())
+    {
+      return false;
+    }
+    const size_t idx = static_cast<size_t>(std::distance(msg.name.begin(), it));
+    if (idx >= msg.position.size())
+    {
+      return false;
+    }
+    positions->push_back(msg.position[idx]);
+  }
+  return true;
+}
+
+bool jointsNearTarget(const std::vector<double>& current,
+                      const std::vector<double>& target,
+                      double tolerance)
+{
+  if (current.size() != target.size())
+  {
+    return false;
+  }
+  for (size_t i = 0; i < current.size(); ++i)
+  {
+    if (std::abs(current[i] - target[i]) > tolerance)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+// /joint_states is merged arm-then-rail (joint_state_filter: r1 then s1).
+const std::vector<std::string> kJointStatesOrder = {
+    "joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6", "slider_1"};
+
+// /behaviors/points/* use /miso/joint_map order (slider_1, joint_1, ... joint_6).
+bool reorderFromJointMapOrder(const std::vector<double>& joint_map_order,
+                              const std::vector<std::string>& joint_map,
+                              const std::vector<std::string>& output_order,
+                              std::vector<double>* output)
+{
+  if (!output || joint_map_order.size() != joint_map.size())
+  {
+    return false;
+  }
+
+  output->clear();
+  output->reserve(output_order.size());
+  for (const auto& joint_name : output_order)
+  {
+    const auto it = std::find(joint_map.begin(), joint_map.end(), joint_name);
+    if (it == joint_map.end())
+    {
+      return false;
+    }
+    const size_t idx = static_cast<size_t>(std::distance(joint_map.begin(), it));
+    output->push_back(joint_map_order[idx]);
+  }
+  return true;
 }
 }  // namespace
 
@@ -112,6 +192,16 @@ public:
   UsbCam cam_;
 
   ros::ServiceServer service_start_, service_stop_, service_auto_reset_exposure_, reset_exposure_;
+  ros::Subscriber joint_states_sub_;
+
+  bool gate_capture_on_joint_state_;
+  std::string joint_states_topic_;
+  std::vector<std::string> joint_names_;
+  std::vector<double> fryer_inspection_joints_;
+  double joint_position_tolerance_;
+  std::mutex joint_state_mutex_;
+  bool has_joint_state_;
+  bool at_fryer_inspection_joints_;
 
   bool service_start_cap(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
   {
@@ -149,10 +239,48 @@ public:
     res.message = "";
     return true;
   }
-  
+
+  void jointStatesCallback(const sensor_msgs::JointStateConstPtr& msg)
+  {
+    if (!gate_capture_on_joint_state_)
+    {
+      return;
+    }
+
+    std::vector<double> current_joints;
+    if (!getOrderedJointPositions(*msg, joint_names_, &current_joints))
+    {
+      return;
+    }
+
+    const bool at_target = jointsNearTarget(
+        current_joints, fryer_inspection_joints_, joint_position_tolerance_);
+
+    {
+      std::lock_guard<std::mutex> lock(joint_state_mutex_);
+      has_joint_state_ = true;
+      at_fryer_inspection_joints_ = at_target;
+    }
+  }
+
+  bool shouldCaptureFrame()
+  {
+    if (!gate_capture_on_joint_state_)
+    {
+      return true;
+    }
+
+    std::lock_guard<std::mutex> lock(joint_state_mutex_);
+    return has_joint_state_ && at_fryer_inspection_joints_;
+  }
 
   UsbCamNode() :
-      node_("~")
+      node_("~"),
+      gate_capture_on_joint_state_(false),
+      joint_states_topic_("/joint_states"),
+      joint_position_tolerance_(0.05),
+      has_joint_state_(false),
+      at_fryer_inspection_joints_(false)
   {
     // advertise the main image topic
     image_transport::ImageTransport it(node_);
@@ -191,6 +319,62 @@ public:
     // load the camera info
     node_.param("camera_frame_id", img_.header.frame_id, std::string("head_camera"));
     node_.param("camera_name", camera_name_, std::string("head_camera"));
+
+    node_.param("joint_states_topic", joint_states_topic_, joint_states_topic_);
+    node_.param("joint_position_tolerance", joint_position_tolerance_, joint_position_tolerance_);
+    node_.param("gate_capture_on_joint_state", gate_capture_on_joint_state_, gate_capture_on_joint_state_);
+
+    const bool is_fryer_camera = camera_name_.compare(0, 9, "fryer_cam") == 0;
+    if (is_fryer_camera || gate_capture_on_joint_state_)
+    {
+      ros::NodeHandle nh;
+      std::vector<double> fryer_inspection_joint_map_order;
+      if (!nh.getParam("/behaviors/points/fryer_inspection", fryer_inspection_joint_map_order) ||
+          fryer_inspection_joint_map_order.empty())
+      {
+        ROS_WARN(
+            "%s: /behaviors/points/fryer_inspection not available; capture is not gated on joint state.",
+            camera_name_.c_str());
+        gate_capture_on_joint_state_ = false;
+      }
+      else
+      {
+        std::vector<std::string> joint_map;
+        if (!nh.getParam("/miso/joint_map", joint_map))
+        {
+          ROS_FATAL(
+              "%s: joint gating requires /miso/joint_map to interpret /behaviors/points/fryer_inspection.",
+              camera_name_.c_str());
+          node_.shutdown();
+          return;
+        }
+
+        if (joint_map.size() != fryer_inspection_joint_map_order.size())
+        {
+          ROS_FATAL(
+              "%s: /miso/joint_map (%zu) and /behaviors/points/fryer_inspection (%zu) must have the same length.",
+              camera_name_.c_str(), joint_map.size(), fryer_inspection_joint_map_order.size());
+          node_.shutdown();
+          return;
+        }
+
+        if (!reorderFromJointMapOrder(
+                fryer_inspection_joint_map_order, joint_map, kJointStatesOrder, &fryer_inspection_joints_))
+        {
+          ROS_FATAL(
+              "%s: failed to reorder fryer_inspection joints to /joint_states order (joint_1..joint_6, slider_1).",
+              camera_name_.c_str());
+          node_.shutdown();
+          return;
+        }
+
+        joint_names_ = kJointStatesOrder;
+        gate_capture_on_joint_state_ = true;
+
+        joint_states_sub_ = node_.subscribe(
+            joint_states_topic_, 1, &UsbCamNode::jointStatesCallback, this);
+      }
+    }
     node_.param("camera_info_url", camera_info_url_, std::string(""));
     cinfo_.reset(new camera_info_manager::CameraInfoManager(node_, camera_name_, camera_info_url_));
 
@@ -257,9 +441,21 @@ public:
       }
     }
 
-    // check for default camera info
-    if (!cinfo_->isCalibrated())
+    if (cinfo_->isCalibrated())
     {
+      ROS_INFO(
+          "%s: loaded camera intrinsics from %s",
+          camera_name_.c_str(),
+          camera_info_url_.empty() ? "camera_info_manager default" : camera_info_url_.c_str());
+    }
+    else
+    {
+      if (!camera_info_url_.empty())
+      {
+        ROS_WARN(
+            "%s: failed to load camera intrinsics from '%s'; aruco_detect will warn about K matrix zeros.",
+            camera_name_.c_str(), camera_info_url_.c_str());
+      }
       cinfo_->setCameraName(video_device_name_);
       sensor_msgs::CameraInfo camera_info;
       camera_info.header.frame_id = img_.header.frame_id;
@@ -463,8 +659,14 @@ public:
     ros::Rate loop_rate(this->framerate_);
     while (node_.ok())
     {
-      if (cam_.is_capturing() && !cam_.is_changing_config()) {
-        if (!take_and_send_image()) ROS_WARN("USB camera did not respond in time.");
+      const bool ready_to_capture =
+          cam_.is_capturing() && !cam_.is_changing_config();
+      if (ready_to_capture && shouldCaptureFrame())
+      {
+        if (!take_and_send_image())
+        {
+          ROS_WARN("USB camera did not respond in time.");
+        }
       }
       heartbeat_.update();
       loop_rate.sleep();
