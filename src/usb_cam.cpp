@@ -34,6 +34,7 @@
  *
  *********************************************************************/
 #define __STDC_CONSTANT_MACROS
+#include <algorithm>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -357,7 +358,12 @@ UsbCam::UsbCam()
   : io_(IO_METHOD_MMAP), fd_(-1), buffers_(NULL), n_buffers_(0), avframe_camera_(NULL),
     avframe_rgb_(NULL), avcodec_(NULL), avoptions_(NULL), avcodec_context_(NULL),
     avframe_rgb_size_(0), video_sws_(NULL), image_(NULL),
-    is_capturing_(false), is_changing_config_(false) {
+    is_capturing_(false), is_changing_config_(false), publish_luma_only_(false) {
+}
+
+void UsbCam::set_publish_luma_only(bool publish_luma_only)
+{
+  publish_luma_only_ = publish_luma_only;
 }
 UsbCam::~UsbCam()
 {
@@ -380,13 +386,23 @@ int UsbCam::init_mjpeg_decoder(int bits_per_pixel, int image_width, int image_he
   avcodec_context_ = avcodec_alloc_context3(avcodec_);
 #if LIBAVCODEC_VERSION_MAJOR < 55
   avframe_camera_ = avcodec_alloc_frame();
-  avframe_rgb_ = avcodec_alloc_frame();
 #else
   avframe_camera_ = av_frame_alloc();
-  avframe_rgb_ = av_frame_alloc();
 #endif
 
-  avpicture_alloc((AVPicture *)avframe_rgb_, AV_PIX_FMT_RGB24, image_width, image_height);
+  if (!publish_luma_only_)
+  {
+#if LIBAVCODEC_VERSION_MAJOR < 55
+    avframe_rgb_ = avcodec_alloc_frame();
+#else
+    avframe_rgb_ = av_frame_alloc();
+#endif
+    avpicture_alloc((AVPicture *)avframe_rgb_, AV_PIX_FMT_RGB24, image_width, image_height);
+  }
+  else
+  {
+    avframe_rgb_ = NULL;
+  }
 
   avcodec_context_->codec_id = AV_CODEC_ID_MJPEG;
   avcodec_context_->width = image_width;
@@ -398,7 +414,9 @@ int UsbCam::init_mjpeg_decoder(int bits_per_pixel, int image_width, int image_he
   avcodec_context_->codec_type = AVMEDIA_TYPE_VIDEO;
 #endif
 
-  avframe_rgb_size_ = avpicture_get_size(AV_PIX_FMT_RGB24, image_width, image_height);
+  avframe_rgb_size_ = publish_luma_only_ ?
+      image_width * image_height :
+      avpicture_get_size(AV_PIX_FMT_RGB24, image_width, image_height);
 
   /* open it */
   if (avcodec_open2(avcodec_context_, avcodec_, &avoptions_) < 0)
@@ -462,6 +480,113 @@ void UsbCam::mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels)
   }
 }
 
+namespace {
+
+void copy_y_plane_to_buffer(const AVFrame* frame, int width, int height, char* dest)
+{
+  const uint8_t* src = frame->data[0];
+  const int src_stride = frame->linesize[0];
+  for (int row = 0; row < height; ++row)
+  {
+    memcpy(dest + row * width, src + row * src_stride, width);
+  }
+}
+
+}  // namespace
+
+void UsbCam::mjpeg2luma(char *MJPEG, int len, char *luma, int num_pixels)
+{
+  int got_picture;
+
+  memset(luma, 0, avframe_rgb_size_);
+
+#if LIBAVCODEC_VERSION_MAJOR > 52
+  int decoded_len;
+  AVPacket avpkt;
+  av_init_packet(&avpkt);
+
+  avpkt.size = len;
+  avpkt.data = (unsigned char*)MJPEG;
+  decoded_len = avcodec_decode_video2(avcodec_context_, avframe_camera_, &got_picture, &avpkt);
+
+  if (decoded_len < 0)
+  {
+    ROS_ERROR("Error while decoding frame.");
+    return;
+  }
+#else
+  avcodec_decode_video(avcodec_context_, avframe_camera_, &got_picture, (uint8_t *) MJPEG, len);
+#endif
+
+  if (!got_picture)
+  {
+    ROS_ERROR("Webcam: expected picture but didn't get it...");
+    return;
+  }
+
+  AVPixelFormat pix_fmt = avcodec_context_->pix_fmt;
+  if (pix_fmt == AV_PIX_FMT_YUVJ420P)
+  {
+    pix_fmt = AV_PIX_FMT_YUV420P;
+  }
+  else if (pix_fmt == AV_PIX_FMT_YUVJ422P)
+  {
+    pix_fmt = AV_PIX_FMT_YUV422P;
+  }
+
+  const int xsize = avcodec_context_->width;
+  const int ysize = avcodec_context_->height;
+
+  if (pix_fmt == AV_PIX_FMT_YUV420P || pix_fmt == AV_PIX_FMT_YUV422P)
+  {
+    if (xsize * ysize != num_pixels)
+    {
+      ROS_WARN_THROTTLE(
+          5.0, "MJPEG decoded size %dx%d differs from buffer %d pixels; copying min region",
+          xsize, ysize, num_pixels);
+    }
+    const int copy_w = std::min(xsize, image_->width);
+    const int copy_h = std::min(ysize, image_->height);
+    copy_y_plane_to_buffer(avframe_camera_, copy_w, copy_h, luma);
+    return;
+  }
+
+  // Unusual chroma layout: fall back to grayscale conversion via swscale.
+  video_sws_ = sws_getContext(
+      xsize, ysize, avcodec_context_->pix_fmt, xsize, ysize, AV_PIX_FMT_GRAY8, SWS_BILINEAR, NULL, NULL, NULL);
+  if (!video_sws_)
+  {
+    ROS_ERROR("webcam: sws_getContext failed for luma fallback (pix_fmt=%d)", avcodec_context_->pix_fmt);
+    return;
+  }
+
+#if LIBAVCODEC_VERSION_MAJOR < 55
+  AVFrame* gray_frame = avcodec_alloc_frame();
+#else
+  AVFrame* gray_frame = av_frame_alloc();
+#endif
+  avpicture_alloc((AVPicture*)gray_frame, AV_PIX_FMT_GRAY8, xsize, ysize);
+
+  sws_scale(
+      video_sws_, avframe_camera_->data, avframe_camera_->linesize, 0, ysize, gray_frame->data, gray_frame->linesize);
+  sws_freeContext(video_sws_);
+  video_sws_ = NULL;
+
+  const int copy_w = std::min(xsize, image_->width);
+  const int copy_h = std::min(ysize, image_->height);
+  const int gray_stride = gray_frame->linesize[0];
+  for (int row = 0; row < copy_h; ++row)
+  {
+    memcpy(luma + row * image_->width, gray_frame->data[0] + row * gray_stride, copy_w);
+  }
+
+#if LIBAVCODEC_VERSION_MAJOR < 55
+  av_free(gray_frame);
+#else
+  av_frame_free(&gray_frame);
+#endif
+}
+
 void UsbCam::process_image(const void * src, int len, camera_image_t *dest)
 {
   if (pixelformat_ == V4L2_PIX_FMT_YUYV)
@@ -478,7 +603,12 @@ void UsbCam::process_image(const void * src, int len, camera_image_t *dest)
   else if (pixelformat_ == V4L2_PIX_FMT_UYVY)
     uyvy2rgb((char*)src, dest->image, dest->width * dest->height);
   else if (pixelformat_ == V4L2_PIX_FMT_MJPEG)
-    mjpeg2rgb((char*)src, len, dest->image, dest->width * dest->height);
+  {
+    if (publish_luma_only_)
+      mjpeg2luma((char*)src, len, dest->image, dest->width * dest->height);
+    else
+      mjpeg2rgb((char*)src, len, dest->image, dest->width * dest->height);
+  }
   else if (pixelformat_ == V4L2_PIX_FMT_RGB24)
     rgb242rgb((char*)src, dest->image, dest->width * dest->height);
   else if (pixelformat_ == V4L2_PIX_FMT_GREY)
@@ -1059,7 +1189,8 @@ void UsbCam::start(const std::string& dev, io_method io_method,
 
   image_->width = image_width;
   image_->height = image_height;
-  image_->bytes_per_pixel = 3;      //corrected 11/10/15 (BYTES not BITS per pixel)
+  const bool mono_output = monochrome_ || (publish_luma_only_ && pixelformat_ == V4L2_PIX_FMT_MJPEG);
+  image_->bytes_per_pixel = mono_output ? 1 : 3;  // BYTES per pixel (not bits)
 
   image_->image_size = image_->width * image_->height * image_->bytes_per_pixel;
   image_->is_new = 0;
@@ -1097,7 +1228,7 @@ bool UsbCam::grab_image(sensor_msgs::Image* msg)
   // stamp the image
   msg->header.stamp = ros::Time::now();
   // fill the info
-  if (monochrome_)
+  if (monochrome_ || publish_luma_only_)
   {
     fillImage(*msg, "mono8", image_->height, image_->width, image_->width,
         image_->image);

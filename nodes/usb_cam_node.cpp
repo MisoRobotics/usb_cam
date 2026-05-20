@@ -320,6 +320,9 @@ public:
     node_.param("camera_frame_id", img_.header.frame_id, std::string("head_camera"));
     node_.param("camera_name", camera_name_, std::string("head_camera"));
 
+    bool publish_luma_only = (camera_name_.compare(0, 9, "fryer_cam") == 0);
+    node_.param("publish_luma_only", publish_luma_only, publish_luma_only);
+
     node_.param("joint_states_topic", joint_states_topic_, joint_states_topic_);
     node_.param("joint_position_tolerance", joint_position_tolerance_, joint_position_tolerance_);
     node_.param("gate_capture_on_joint_state", gate_capture_on_joint_state_, gate_capture_on_joint_state_);
@@ -465,9 +468,20 @@ public:
     }
 
 
-    ROS_INFO("Starting '%s' (%s) at %dx%d via %s (%s %d bpp) at %i FPS", camera_name_.c_str(),
-             video_device_name_.c_str(), image_width_, image_height_, io_method_name_.c_str(),
-             pixel_format_name_.c_str(), bits_per_pixel_, framerate_);
+    if (publish_luma_only && pixel_format_name_ != "mjpeg")
+    {
+      ROS_WARN(
+          "%s: publish_luma_only requires pixel_format mjpeg; publishing full color instead.",
+          camera_name_.c_str());
+      publish_luma_only = false;
+    }
+    cam_.set_publish_luma_only(publish_luma_only);
+
+    ROS_INFO(
+        "Starting '%s' (%s) at %dx%d via %s (%s %d bpp) at %i FPS%s", camera_name_.c_str(),
+        video_device_name_.c_str(), image_width_, image_height_, io_method_name_.c_str(),
+        pixel_format_name_.c_str(), bits_per_pixel_, framerate_,
+        publish_luma_only ? " [MJPEG luma -> mono8]" : "");
 
     // set the IO method
     UsbCam::io_method io_method = UsbCam::io_method_from_string(io_method_name_);
@@ -608,7 +622,10 @@ public:
   bool take_and_send_image()
   {
     // grab the image
-    if(!cam_.grab_image(&img_)) ros::shutdown();
+    if (!cam_.grab_image(&img_))
+    {
+      ros::shutdown();
+    }
     // grab the camera info
     sensor_msgs::CameraInfoPtr ci(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
     ci->header.frame_id = img_.header.frame_id;
