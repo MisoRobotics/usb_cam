@@ -34,6 +34,7 @@
  *
  *********************************************************************/
 #define __STDC_CONSTANT_MACROS
+#include <algorithm>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -357,7 +358,13 @@ UsbCam::UsbCam()
   : io_(IO_METHOD_MMAP), fd_(-1), buffers_(NULL), n_buffers_(0), avframe_camera_(NULL),
     avframe_rgb_(NULL), avcodec_(NULL), avoptions_(NULL), avcodec_context_(NULL),
     avframe_rgb_size_(0), video_sws_(NULL), image_(NULL),
-    is_capturing_(false), is_changing_config_(false) {
+    is_capturing_(false), is_changing_config_(false), publish_luma_only_(false) {
+}
+
+void UsbCam::set_publish_luma_only(bool publish_luma_only)
+{
+  // Only usb_cam_node calls this before start(). Do not toggle after init_mjpeg_decoder().
+  publish_luma_only_ = publish_luma_only;
 }
 UsbCam::~UsbCam()
 {
@@ -380,13 +387,23 @@ int UsbCam::init_mjpeg_decoder(int bits_per_pixel, int image_width, int image_he
   avcodec_context_ = avcodec_alloc_context3(avcodec_);
 #if LIBAVCODEC_VERSION_MAJOR < 55
   avframe_camera_ = avcodec_alloc_frame();
-  avframe_rgb_ = avcodec_alloc_frame();
 #else
   avframe_camera_ = av_frame_alloc();
-  avframe_rgb_ = av_frame_alloc();
 #endif
 
-  avpicture_alloc((AVPicture *)avframe_rgb_, AV_PIX_FMT_RGB24, image_width, image_height);
+  if (!publish_luma_only_)
+  {
+#if LIBAVCODEC_VERSION_MAJOR < 55
+    avframe_rgb_ = avcodec_alloc_frame();
+#else
+    avframe_rgb_ = av_frame_alloc();
+#endif
+    avpicture_alloc((AVPicture *)avframe_rgb_, AV_PIX_FMT_RGB24, image_width, image_height);
+  }
+  else
+  {
+    avframe_rgb_ = NULL;
+  }
 
   avcodec_context_->codec_id = AV_CODEC_ID_MJPEG;
   avcodec_context_->width = image_width;
@@ -398,7 +415,9 @@ int UsbCam::init_mjpeg_decoder(int bits_per_pixel, int image_width, int image_he
   avcodec_context_->codec_type = AVMEDIA_TYPE_VIDEO;
 #endif
 
-  avframe_rgb_size_ = avpicture_get_size(AV_PIX_FMT_RGB24, image_width, image_height);
+  avframe_rgb_size_ = publish_luma_only_ ?
+      image_width * image_height :
+      avpicture_get_size(AV_PIX_FMT_RGB24, image_width, image_height);
 
   /* open it */
   if (avcodec_open2(avcodec_context_, avcodec_, &avoptions_) < 0)
@@ -462,6 +481,69 @@ void UsbCam::mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels)
   }
 }
 
+namespace {
+
+void copy_y_plane_to_buffer(const AVFrame* frame, int copy_w, int copy_h, char* dest, int dest_stride)
+{
+  const uint8_t* src = frame->data[0];
+  const int src_stride = frame->linesize[0];
+  for (int row = 0; row < copy_h; ++row)
+  {
+    memcpy(dest + row * dest_stride, src + row * src_stride, copy_w);
+  }
+}
+
+}  // namespace
+
+void UsbCam::mjpeg2luma(char *MJPEG, int len, char *luma, int num_pixels)
+{
+  int got_picture;
+
+  if (num_pixels <= 0)
+    return;
+  memset(luma, 0, static_cast<size_t>(num_pixels));
+
+#if LIBAVCODEC_VERSION_MAJOR > 52
+  int decoded_len;
+  AVPacket avpkt;
+  av_init_packet(&avpkt);
+
+  avpkt.size = len;
+  avpkt.data = (unsigned char*)MJPEG;
+  decoded_len = avcodec_decode_video2(avcodec_context_, avframe_camera_, &got_picture, &avpkt);
+
+  if (decoded_len < 0)
+  {
+    ROS_ERROR("Error while decoding frame.");
+    return;
+  }
+#else
+  avcodec_decode_video(avcodec_context_, avframe_camera_, &got_picture, (uint8_t *) MJPEG, len);
+#endif
+
+  if (!got_picture)
+  {
+    ROS_ERROR("Webcam: expected picture but didn't get it...");
+    return;
+  }
+
+  const int xsize = avcodec_context_->width;
+  const int ysize = avcodec_context_->height;
+
+  // All planar formats the MJPEG decoder can produce (YUV420P, YUV422P, YUV444P, GRAY8, and
+  // their full-range YUVJ* variants) store the luma/gray channel in data[0], so
+  // copy_y_plane_to_buffer is correct for all of them.
+  if (xsize * ysize != num_pixels)
+  {
+    ROS_WARN_THROTTLE(
+        5.0, "MJPEG decoded size %dx%d differs from buffer %d pixels; copying min region",
+        xsize, ysize, num_pixels);
+  }
+  const int copy_w = std::min(xsize, image_->width);
+  const int copy_h = std::min(ysize, image_->height);
+  copy_y_plane_to_buffer(avframe_camera_, copy_w, copy_h, luma, image_->width);
+}
+
 void UsbCam::process_image(const void * src, int len, camera_image_t *dest)
 {
   if (pixelformat_ == V4L2_PIX_FMT_YUYV)
@@ -478,7 +560,12 @@ void UsbCam::process_image(const void * src, int len, camera_image_t *dest)
   else if (pixelformat_ == V4L2_PIX_FMT_UYVY)
     uyvy2rgb((char*)src, dest->image, dest->width * dest->height);
   else if (pixelformat_ == V4L2_PIX_FMT_MJPEG)
-    mjpeg2rgb((char*)src, len, dest->image, dest->width * dest->height);
+  {
+    if (publish_luma_only_)
+      mjpeg2luma((char*)src, len, dest->image, dest->width * dest->height);
+    else
+      mjpeg2rgb((char*)src, len, dest->image, dest->width * dest->height);
+  }
   else if (pixelformat_ == V4L2_PIX_FMT_RGB24)
     rgb242rgb((char*)src, dest->image, dest->width * dest->height);
   else if (pixelformat_ == V4L2_PIX_FMT_GREY)
@@ -1051,6 +1138,12 @@ void UsbCam::start(const std::string& dev, io_method io_method,
     exit(EXIT_FAILURE);
   }
 
+  if (publish_luma_only_ && pixelformat_ != V4L2_PIX_FMT_MJPEG)
+  {
+    ROS_WARN("publish_luma_only requires MJPEG pixel format; publishing rgb8 instead.");
+    publish_luma_only_ = false;
+  }
+
   open_device();
   init_device(image_width, image_height, framerate);
   start_capturing();
@@ -1059,7 +1152,8 @@ void UsbCam::start(const std::string& dev, io_method io_method,
 
   image_->width = image_width;
   image_->height = image_height;
-  image_->bytes_per_pixel = 3;      //corrected 11/10/15 (BYTES not BITS per pixel)
+  const bool mono_output = monochrome_ || (publish_luma_only_ && pixelformat_ == V4L2_PIX_FMT_MJPEG);
+  image_->bytes_per_pixel = mono_output ? 1 : 3;  // BYTES per pixel (not bits)
 
   image_->image_size = image_->width * image_->height * image_->bytes_per_pixel;
   image_->is_new = 0;
@@ -1083,7 +1177,10 @@ void UsbCam::shutdown(void)
     av_free(avframe_camera_);
   avframe_camera_ = NULL;
   if (avframe_rgb_)
+  {
+    avpicture_free((AVPicture *)avframe_rgb_);
     av_free(avframe_rgb_);
+  }
   avframe_rgb_ = NULL;
   if(image_)
     free(image_);
@@ -1096,8 +1193,9 @@ bool UsbCam::grab_image(sensor_msgs::Image* msg)
   if (!grab_image()) return false;
   // stamp the image
   msg->header.stamp = ros::Time::now();
-  // fill the info
-  if (monochrome_)
+  // Must match mono_output in start(): luma path is MJPEG-only.
+  const bool mono_output = monochrome_ || (publish_luma_only_ && pixelformat_ == V4L2_PIX_FMT_MJPEG);
+  if (mono_output)
   {
     fillImage(*msg, "mono8", image_->height, image_->width, image_->width,
         image_->image);
