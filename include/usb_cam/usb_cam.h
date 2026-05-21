@@ -97,6 +97,13 @@ class UsbCam {
   // Get the actual pixel format for MJPEG video from bits per pixels
   static AVPixelFormat get_avcodec_pixel_format(int bits_per_pixel);
 
+  /**
+   * When true (MJPEG only), publish decoded Y (luma) plane as mono8 instead of RGB.
+   * Must be called before start(); init_mjpeg_decoder() allocates avframe_rgb_ from this
+   * flag and process_image() is not safe to retoggle while the decoder is open.
+   */
+  void set_publish_luma_only(bool publish_luma_only);
+
   void stop_capturing(void);
   void start_capturing(void);
   bool is_capturing();
@@ -124,6 +131,7 @@ class UsbCam {
 
   int init_mjpeg_decoder(int bits_per_pixel, int image_width, int image_height);
   void mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels);
+  void mjpeg2luma(char *MJPEG, int len, char *luma, int num_pixels);
   void process_image(const void * src, int len, camera_image_t *dest);
   int read_frame();
   void uninit_device(void);
@@ -141,6 +149,7 @@ class UsbCam {
   std::string camera_dev_;
   unsigned int pixelformat_;
   bool monochrome_;
+  bool publish_luma_only_;
   io_method io_;
   int fd_;
   buffer * buffers_;
