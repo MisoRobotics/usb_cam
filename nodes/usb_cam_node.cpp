@@ -42,6 +42,7 @@
 #include <camera_info_manager/camera_info_manager.h>
 #include <memory>
 #include <sstream>
+#include <vector>
 #include <std_srvs/Empty.h>
 #include <std_srvs/SetBool.h>
 #include <thread>
@@ -49,6 +50,22 @@
 #include <misocpp/diagnostic_updater_wrapper.h>
 
 namespace usb_cam {
+
+namespace
+{
+// udev lists e.g. /dev/video0; flippy-config may use /dev/v4l/by-path/... symlinks to the same node.
+std::string resolve_v4l_device_path(const std::string& p)
+{
+  try
+  {
+    return std::filesystem::weakly_canonical(p).string();
+  }
+  catch (const std::exception&)
+  {
+    return p;
+  }
+}
+}  // namespace
 
 //! \brief Manual Mode on V4L2 auto_exposure setting
 const int AUTO_EXPOSURE_MANUAL_MODE = 1;
@@ -96,13 +113,13 @@ public:
 
   ros::ServiceServer service_start_, service_stop_, service_auto_reset_exposure_, reset_exposure_;
 
-  bool service_start_cap(std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
+  bool service_start_cap(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
   {
     cam_.start_capturing();
     return true;
   }
 
-  bool reset_exposure_call(std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
+  bool reset_exposure_call(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
   {
     ros::Rate srv_rate(5);
     bool timeout = 20.0;
@@ -119,7 +136,7 @@ public:
     return true;
   }
 
-  bool service_stop_cap( std_srvs::Empty::Request  &req, std_srvs::Empty::Response &res )
+  bool service_stop_cap(std_srvs::Empty::Request&, std_srvs::Empty::Response&)
   {
     cam_.stop_capturing();
     return true;
@@ -175,6 +192,9 @@ public:
     node_.param("camera_frame_id", img_.header.frame_id, std::string("head_camera"));
     node_.param("camera_name", camera_name_, std::string("head_camera"));
     node_.param("camera_info_url", camera_info_url_, std::string(""));
+
+    bool publish_luma_only = (camera_name_.compare(0, 9, "fryer_cam") == 0);
+    node_.param("publish_luma_only", publish_luma_only, publish_luma_only);
     cinfo_.reset(new camera_info_manager::CameraInfoManager(node_, camera_name_, camera_info_url_));
 
     init_cam_reset_ = false;
@@ -190,23 +210,53 @@ public:
       str_map map_dev_serial = get_serial_dev_info();
       clear_unsupported_devices(map_dev_serial, pixel_format_name_);
 
-      bool found = false;
-      auto it = map_dev_serial.cbegin();
-      for (; it != map_dev_serial.cend(); ++it)
+      std::vector<std::string> serial_matches;
+      for (const auto& dev_serial : map_dev_serial)
       {
-        if (serial_number_ == it->second)
+        if (serial_number_ == dev_serial.second)
         {
-          found = true;
-          video_device_name_ = it->first;
-          break;
+          serial_matches.push_back(dev_serial.first);
         }
       }
 
-      if (!found)
+      if (serial_matches.empty())
       {
         ROS_FATAL("USB camera with serial number '%s' cannot be found.", serial_number_.c_str());
         node_.shutdown();
         return;
+      }
+
+      if (serial_matches.size() == 1)
+      {
+        video_device_name_ = serial_matches.front();
+      }
+      else
+      {
+        // Several V4L nodes can report the same USB serial; keep the `video_device` param (e.g. by-path)
+        // when it resolves to the same dev node as one of the udev entries.
+        const std::string wanted_resolved = resolve_v4l_device_path(video_device_name_);
+        bool device_ok = false;
+        for (const auto& path : serial_matches)
+        {
+          if (resolve_v4l_device_path(path) == wanted_resolved)
+          {
+            device_ok = true;
+            break;
+          }
+        }
+        if (!device_ok)
+        {
+          std::ostringstream oss;
+          oss << "USB serial '" << serial_number_ << "' matches several devices; set per-camera video_device "
+                 "in world_launch (e.g. /dev/v4l/by-path/...). Candidates:";
+          for (const auto& path : serial_matches)
+          {
+            oss << ' ' << path;
+          }
+          ROS_FATAL("%s", oss.str().c_str());
+          node_.shutdown();
+          return;
+        }
       }
     }
 
@@ -222,9 +272,20 @@ public:
     }
 
 
-    ROS_INFO("Starting '%s' (%s) at %dx%d via %s (%s %d bpp) at %i FPS", camera_name_.c_str(),
-             video_device_name_.c_str(), image_width_, image_height_, io_method_name_.c_str(),
-             pixel_format_name_.c_str(), bits_per_pixel_, framerate_);
+    if (publish_luma_only && pixel_format_name_ != "mjpeg")
+    {
+      ROS_WARN(
+          "%s: publish_luma_only requires pixel_format mjpeg; publishing full color instead.",
+          camera_name_.c_str());
+      publish_luma_only = false;
+    }
+    cam_.set_publish_luma_only(publish_luma_only);
+
+    ROS_INFO(
+        "Starting '%s' (%s) at %dx%d via %s (%s %d bpp) at %i FPS%s", camera_name_.c_str(),
+        video_device_name_.c_str(), image_width_, image_height_, io_method_name_.c_str(),
+        pixel_format_name_.c_str(), bits_per_pixel_, framerate_,
+        publish_luma_only ? " [MJPEG luma -> mono8]" : "");
 
     // set the IO method
     UsbCam::io_method io_method = UsbCam::io_method_from_string(io_method_name_);
@@ -365,7 +426,10 @@ public:
   bool take_and_send_image()
   {
     // grab the image
-    if(!cam_.grab_image(&img_)) ros::shutdown();
+    if (!cam_.grab_image(&img_))
+    {
+      ros::shutdown();
+    }
     // grab the camera info
     sensor_msgs::CameraInfoPtr ci(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
     ci->header.frame_id = img_.header.frame_id;
