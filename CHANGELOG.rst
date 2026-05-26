@@ -23,8 +23,8 @@ Changelog for package usb_cam
 * fix bug for byte count in a pixel (3 bytes not 24 bytes) (`#40 <https://github.com/ros-drivers/usb_cam/issues/40>`_ )
 * Contributors: Daniel Seifert, Eric Zavesky, Kei Okada, Ludovico Russo, Russell Toris, honeytrap15
 
-Forthcoming
------------
+1.1.1 (2026-05-26)
+------------------
 * Merge pull request `#75 <https://github.com/MisoRobotics/usb_cam/issues/75>`_ from MisoRobotics/user/ykojitani/dev/publish-images-in-grayscale
   F3-14174: Publish fryer MJPEG frames as mono8 luma to reduce CPU usage on usb cam nodes
 * Publish fryer MJPEG frames as mono8 luma (Y plane)
