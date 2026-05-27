@@ -561,6 +561,7 @@ void UsbCam::process_image(const void * src, int len, camera_image_t *dest)
     uyvy2rgb((char*)src, dest->image, dest->width * dest->height);
   else if (pixelformat_ == V4L2_PIX_FMT_MJPEG)
   {
+    mjpeg_frame_.assign(static_cast<const uint8_t*>(src), static_cast<const uint8_t*>(src) + len);
     if (publish_luma_only_)
       mjpeg2luma((char*)src, len, dest->image, dest->width * dest->height);
     else
@@ -1185,6 +1186,17 @@ void UsbCam::shutdown(void)
   if(image_)
     free(image_);
   image_ = NULL;
+}
+
+bool UsbCam::fill_compressed_image(sensor_msgs::CompressedImage* msg)
+{
+  if (pixelformat_ != V4L2_PIX_FMT_MJPEG || mjpeg_frame_.empty())
+  {
+    return false;
+  }
+  msg->format = "jpeg";
+  msg->data.swap(mjpeg_frame_);
+  return true;
 }
 
 bool UsbCam::grab_image(sensor_msgs::Image* msg)
