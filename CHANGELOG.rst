@@ -23,6 +23,28 @@ Changelog for package usb_cam
 * fix bug for byte count in a pixel (3 bytes not 24 bytes) (`#40 <https://github.com/ros-drivers/usb_cam/issues/40>`_ )
 * Contributors: Daniel Seifert, Eric Zavesky, Kei Okada, Ludovico Russo, Russell Toris, honeytrap15
 
+1.1.1 (2026-05-26)
+------------------
+* Merge pull request `#75 <https://github.com/MisoRobotics/usb_cam/issues/75>`_ from MisoRobotics/user/ykojitani/dev/publish-images-in-grayscale
+  F3-14174: Publish fryer MJPEG frames as mono8 luma to reduce CPU usage on usb cam nodes
+* Publish fryer MJPEG frames as mono8 luma (Y plane)
+  This was mainly to reduce CPU usage since we are now using new
+  cameras in 4K. After MJPEG decode, copy the decoded YUV Y (luma)
+  plane to the image buffer and publish mono8 instead of running
+  swscale to full rgb8.
+  Fryer cameras enable this via publish_luma_only (default on for
+  fryer_cam\_* in usb_cam_node and camera_defaults.yaml). This skips
+  RGB conversion and cuts image_raw bandwidth by about three while
+  keeping full-frame JPEG decode cost unchanged.
+  aruco_detect already handles 1-channel images; marker_template_matching
+  accepts mono8 in addition to bgr8.
+  Revert by setting publish_luma_only: false for a camera. Downstream
+  tools that require color image_raw need rgb8 or a separate topic.
+* Merge pull request `#72 <https://github.com/MisoRobotics/usb_cam/issues/72>`_ from MisoRobotics/user/cravotics/dev/final_camera_config_usb_2.0
+  F3-14132: Add support for IMX678 4K cameras
+* Add integration for new cams
+* Contributors: Flippy, Sana Sarfraz, Yusuke Kojitani
+
 1.1.0 (2025-09-18)
 ------------------
 * Merge pull request `#71 <https://github.com/MisoRobotics/usb_cam/issues/71>`_ from MisoRobotics/user/ajensen/update/codeowners
