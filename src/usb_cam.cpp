@@ -1195,7 +1195,7 @@ bool UsbCam::fill_compressed_image(sensor_msgs::CompressedImage* msg)
     return false;
   }
   msg->format = "jpeg";
-  msg->data = mjpeg_frame_;
+  msg->data.swap(mjpeg_frame_);
   return true;
 }
 
