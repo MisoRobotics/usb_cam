@@ -55,9 +55,7 @@ extern "C"
 #include <string>
 #include <sstream>
 
-#include <sensor_msgs/CompressedImage.h>
 #include <sensor_msgs/Image.h>
-#include <vector>
 
 namespace usb_cam {
 
@@ -84,9 +82,6 @@ class UsbCam {
 
   // grabs a new image from the camera
   bool grab_image(sensor_msgs::Image* image);
-
-  // Fills msg with the last MJPEG frame from the camera (pixel_format mjpeg only).
-  bool fill_compressed_image(sensor_msgs::CompressedImage* msg);
 
   // enables/disable auto focus
   void set_auto_focus(int value);
@@ -167,7 +162,6 @@ class UsbCam {
   int avframe_rgb_size_;
   struct SwsContext *video_sws_;
   camera_image_t *image_;
-  std::vector<uint8_t> mjpeg_frame_;
 
 };
 
