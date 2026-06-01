@@ -23,6 +23,15 @@ Changelog for package usb_cam
 * fix bug for byte count in a pixel (3 bytes not 24 bytes) (`#40 <https://github.com/ros-drivers/usb_cam/issues/40>`_ )
 * Contributors: Daniel Seifert, Eric Zavesky, Kei Okada, Ludovico Russo, Russell Toris, honeytrap15
 
+1.1.2 (2026-06-01)
+------------------
+* Merge pull request `#80 <https://github.com/MisoRobotics/usb_cam/issues/80>`_ from MisoRobotics/user/ssarfraz/feature/log-compressed-images
+  Publish mjpeg images to new image_compressed topic
+* Publish mjpeg images to new image_compressed topic
+* Merge pull request `#79 <https://github.com/MisoRobotics/usb_cam/issues/79>`_ from MisoRobotics/master
+  Merge pull request `#76 <https://github.com/MisoRobotics/usb_cam/issues/76>`_ from MisoRobotics/release/1.1.1
+* Contributors: Sana Sarfraz, Winnie Lam
+
 1.1.1 (2026-05-26)
 ------------------
 * Merge pull request `#75 <https://github.com/MisoRobotics/usb_cam/issues/75>`_ from MisoRobotics/user/ykojitani/dev/publish-images-in-grayscale

@@ -39,6 +39,7 @@
 #include <ros/ros.h>
 #include <usb_cam/usb_cam.h>
 #include <image_transport/image_transport.h>
+#include <sensor_msgs/CompressedImage.h>
 #include <camera_info_manager/camera_info_manager.h>
 #include <memory>
 #include <sstream>
@@ -97,7 +98,9 @@ public:
 
   // shared image message
   sensor_msgs::Image img_;
+  sensor_msgs::CompressedImage compressed_img_;
   image_transport::CameraPublisher image_pub_;
+  ros::Publisher compressed_image_pub_;
 
   // parameters
   std::string video_device_name_, io_method_name_, pixel_format_name_, camera_name_, camera_info_url_;
@@ -157,6 +160,8 @@ public:
     // advertise the main image topic
     image_transport::ImageTransport it(node_);
     image_pub_ = it.advertiseCamera("image_raw", 1);
+    compressed_image_pub_ =
+        node_.advertise<sensor_msgs::CompressedImage>("image_compressed", 1);
 
     // grab the parameters
     node_.param("serial_no", serial_number_, std::string(""));
@@ -286,6 +291,12 @@ public:
         video_device_name_.c_str(), image_width_, image_height_, io_method_name_.c_str(),
         pixel_format_name_.c_str(), bits_per_pixel_, framerate_,
         publish_luma_only ? " [MJPEG luma -> mono8]" : "");
+    if (pixel_format_name_ != "mjpeg")
+    {
+      ROS_WARN(
+          "%s: image_compressed is only published when pixel_format is mjpeg.",
+          camera_name_.c_str());
+    }
 
     // set the IO method
     UsbCam::io_method io_method = UsbCam::io_method_from_string(io_method_name_);
@@ -439,6 +450,12 @@ public:
     image_pub_.publish(img_, *ci);
     diag_freq_camera_info_->tick();
     diag_freq_image_raw_->tick();
+
+    compressed_img_.header = img_.header;
+    if (cam_.fill_compressed_image(&compressed_img_))
+    {
+      compressed_image_pub_.publish(compressed_img_);
+    }
 
     return true;
   }
