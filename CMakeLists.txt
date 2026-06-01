@@ -12,6 +12,9 @@ pkg_check_modules(avcodec libavcodec REQUIRED)
 pkg_check_modules(swscale libswscale REQUIRED)
 pkg_check_modules(udev libudev REQUIRED)
 
+## Find OpenCV for video_stream_opencv and poe_cam support
+find_package(OpenCV REQUIRED)
+
 ###################################################
 ## Declare things to be passed to other projects ##
 ###################################################
@@ -38,18 +41,21 @@ include_directories(include
   ${catkin_INCLUDE_DIRS}
   ${avcodec_INCLUDE_DIRS}
   ${swscale_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 ## Build the USB camera library
 add_library(${PROJECT_NAME}
   src/device_utils.cpp
   src/usb_cam.cpp
+  src/poe_cam.cpp
 )
 
 target_link_libraries(${PROJECT_NAME}
   ${avcodec_LIBRARIES}
   ${swscale_LIBRARIES}
   ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
   ${GCC_COVERAGE_LINK_FLAGS}
 )
 
@@ -61,6 +67,17 @@ target_link_libraries(${PROJECT_NAME}_node
   ${swscale_LIBRARIES}
   ${catkin_LIBRARIES}
   ${udev_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+)
+
+add_executable(poe_cam_node nodes/poe_cam_node.cpp)
+target_link_libraries(poe_cam_node
+  ${PROJECT_NAME}
+  ${avcodec_LIBRARIES}
+  ${swscale_LIBRARIES}
+  ${catkin_LIBRARIES}
+  ${udev_LIBRARIES}
+  ${OpenCV_LIBRARIES}
 )
 
 #############
@@ -69,6 +86,7 @@ target_link_libraries(${PROJECT_NAME}_node
 
 ## Mark executables and/or libraries for installation
 install(TARGETS ${PROJECT_NAME}_node ${PROJECT_NAME}
+  poe_cam_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
