@@ -1,20 +1,24 @@
 <launch>
   <node name="poe_cam1" pkg="usb_cam" type="poe_cam_node" output="screen" >
-    <param name="video_url" value="rtsp://192.168.1.168:554/stream" />
+    <param name="video_url" value="rtsp://192.168.41.61:553/stream" />
     <param name="pixel_format" value="rgb24" />
     <param name="camera_frame_id" value="poe_cam1" />
   </node>
   <node name="poe_cam2" pkg="usb_cam" type="poe_cam_node" output="screen" >
-    <param name="video_url" value="rtsp://192.168.1.169:554/stream" />
+    <param name="video_url" value="rtsp://192.168.41.63:553/stream" />
     <param name="pixel_format" value="rgb24" />
     <param name="camera_frame_id" value="poe_cam2" />
   </node>
   <node name="poe_cam3" pkg="usb_cam" type="poe_cam_node" output="screen" >
-    <param name="video_url" value="rtsp://192.168.1.170:554/stream" />
+    <param name="video_url" value="rtsp://192.168.41.62:553/stream" />
     <param name="pixel_format" value="rgb24" />
     <param name="camera_frame_id" value="poe_cam3" />
   </node>
 
+  <!-- Streams all image topics over HTTP. Open http://localhost:8180 in a browser. -->
+  <node name="web_video_server" pkg="web_video_server" type="web_video_server" output="screen">
+    <param name="port" value="8080"/>
+  </node>
   <!-- The image_view nodes are for debugging only-->
   <!--
   <node name="image_view1" pkg="image_view" type="image_view" respawn="false" output="screen">
