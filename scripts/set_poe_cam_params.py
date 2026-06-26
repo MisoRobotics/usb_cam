@@ -6,8 +6,15 @@ from onvif import ONVIFCamera
 async def main():
     wsdl_path = os.path.join(os.path.dirname(onvif.__file__), "wsdl")
     
-    print("Connecting to camera at 192.168.41.63...")
-    mycam = ONVIFCamera('192.168.41.63', 80, 'admin', 'camera', wsdl_dir=wsdl_path)
+    host = os.environ.get("POE_CAM_HOST", "192.168.41.63")
+    port = int(os.environ.get("POE_CAM_PORT", "80"))
+    user = os.environ.get("POE_CAM_USER", "admin")
+    password = os.environ.get("POE_CAM_PASSWORD")
+    if not password:
+        raise RuntimeError("POE_CAM_PASSWORD must be set")
+
+    print(f"Connecting to camera at {host}...")
+    mycam = ONVIFCamera(host, port, user, password, wsdl_dir=wsdl_path)
     
     try:
         await mycam.update_xaddrs()

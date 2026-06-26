@@ -3,6 +3,7 @@
 # Configuration
 RECORD_DURATION=3         # Duration to record in seconds per iteration
 BAG_DIR="/root/workspace/saved_data/bag_data"  # Directory to save bag files
+TODAY="$(date +%Y%m%d)"
 
 # Array of all robot operations
 robot_cmds=(

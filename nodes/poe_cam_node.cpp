@@ -24,7 +24,7 @@ namespace usb_cam {
 
 namespace
 {
-std::string resolve_device_path(const std::string& p)
+[[maybe_unused]] std::string resolve_device_path(const std::string& p)
 {
   try
   {

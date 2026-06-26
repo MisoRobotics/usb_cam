@@ -97,7 +97,7 @@ class PoECam {
   bool grab_image();
   bool open_camera();
   bool reopen_camera();
-  void convert_frame_to_image();
+  // void convert_frame_to_image();  // unused
 
   std::string camera_url_;
   std::unique_ptr<cv::VideoCapture> video_capture_;

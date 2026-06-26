@@ -87,9 +87,7 @@ bool PoECam::start(const std::string& camera_url, pixel_format pf) {
     return false;
   }
 
-  // Set codec
-  video_capture_->set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('h', 'v', 'c', '1'));
-
+  // Keep the codec as provided by the RTSP source; forcing FOURCC here is often ignored or can break decoding.
   // Get camera properties from device
   framerate_ = static_cast<int>(video_capture_->get(cv::CAP_PROP_FPS));
   camera_width_ = static_cast<int>(video_capture_->get(cv::CAP_PROP_FRAME_WIDTH));
@@ -108,6 +106,8 @@ bool PoECam::start(const std::string& camera_url, pixel_format pf) {
   
   if (!image_->image) {
     ROS_ERROR("Failed to allocate image buffer");
+    video_capture_->release();
+    video_capture_.reset();
     return false;
   }
 
@@ -220,11 +220,17 @@ void PoECam::process_image(const cv::Mat& frame) {
       cv::cvtColor(target_frame, target_frame, cv::COLOR_BGR2GRAY);
     }
   } else {
-    if (target_frame.channels() != 3) {
-      cv::cvtColor(target_frame, target_frame, cv::COLOR_YUV2BGR_I420);
+    const int ch = target_frame.channels();
+    if (ch == 1) {
+      cv::cvtColor(target_frame, target_frame, cv::COLOR_GRAY2RGB);
+    } else if (ch == 3) {
+      cv::cvtColor(target_frame, target_frame, cv::COLOR_BGR2RGB);
+    } else if (ch == 4) {
+      cv::cvtColor(target_frame, target_frame, cv::COLOR_BGRA2RGB);
+    } else {
+      ROS_ERROR_THROTTLE(5.0, "Unsupported channel count from RTSP stream: %d", ch);
+      return;
     }
-    // OpenCV uses BGR, but we need RGB for ROS
-    cv::cvtColor(target_frame, target_frame, cv::COLOR_BGR2RGB);
   }
 
   // Resize if needed

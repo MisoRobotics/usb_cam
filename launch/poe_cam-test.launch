@@ -15,7 +15,7 @@
     <param name="camera_frame_id" value="poe_cam3" />
   </node>
 
-  <!-- Streams all image topics over HTTP. Open http://localhost:8180 in a browser. -->
+  <!-- Streams all image topics over HTTP. Open http://localhost:8080 in a browser. -->
   <node name="web_video_server" pkg="web_video_server" type="web_video_server" output="screen">
     <param name="port" value="8080"/>
   </node>
