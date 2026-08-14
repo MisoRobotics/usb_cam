@@ -198,7 +198,7 @@ public:
     node_.param("camera_name", camera_name_, std::string("head_camera"));
     node_.param("camera_info_url", camera_info_url_, std::string(""));
 
-    bool publish_luma_only = (camera_name_.compare(0, 9, "fryer_cam") == 0);
+    bool publish_luma_only = false;
     node_.param("publish_luma_only", publish_luma_only, publish_luma_only);
     cinfo_.reset(new camera_info_manager::CameraInfoManager(node_, camera_name_, camera_info_url_));
 
