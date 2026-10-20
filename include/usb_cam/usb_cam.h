@@ -36,14 +36,13 @@
 #ifndef USB_CAM_USB_CAM_H
 #define USB_CAM_USB_CAM_H
 
-#include <asm/types.h>          /* for videodev2.h */
+#include <asm/types.h> /* for videodev2.h */
 
-extern "C"
-{
-#include <linux/videodev2.h>
+extern "C" {
 #include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
 #include <libavutil/mem.h>
+#include <libswscale/swscale.h>
+#include <linux/videodev2.h>
 }
 
 // legacy reasons
@@ -52,8 +51,8 @@ extern "C"
 #define AV_CODEC_ID_MJPEG CODEC_ID_MJPEG
 #endif
 
-#include <string>
 #include <sstream>
+#include <string>
 
 #include <sensor_msgs/CompressedImage.h>
 #include <sensor_msgs/Image.h>
@@ -62,52 +61,72 @@ extern "C"
 namespace usb_cam {
 
 class UsbCam {
- public:
-  typedef enum
-  {
-    IO_METHOD_READ, IO_METHOD_MMAP, IO_METHOD_USERPTR, IO_METHOD_UNKNOWN,
+public:
+  typedef enum {
+    IO_METHOD_READ,
+    IO_METHOD_MMAP,
+    IO_METHOD_USERPTR,
+    IO_METHOD_UNKNOWN,
   } io_method;
 
-  typedef enum
-  {
-    PIXEL_FORMAT_YUYV, PIXEL_FORMAT_UYVY, PIXEL_FORMAT_MJPEG, PIXEL_FORMAT_YUVMONO10, PIXEL_FORMAT_RGB24, PIXEL_FORMAT_GREY, PIXEL_FORMAT_UNKNOWN
+  typedef enum {
+    PIXEL_FORMAT_YUYV,
+    PIXEL_FORMAT_UYVY,
+    PIXEL_FORMAT_MJPEG,
+    PIXEL_FORMAT_YUVMONO10,
+    PIXEL_FORMAT_RGB24,
+    PIXEL_FORMAT_GREY,
+    PIXEL_FORMAT_UNKNOWN
   } pixel_format;
 
   UsbCam();
   ~UsbCam();
 
   // start camera
-  void start(const std::string& dev, io_method io, pixel_format pf,
-		    int bits_per_pixel, int image_width, int image_height, int framerate);
+  void start(const std::string &dev, io_method io, pixel_format pf,
+             int bits_per_pixel, int image_width, int image_height,
+             int framerate);
   // shutdown camera
   void shutdown(void);
 
   // grabs a new image from the camera
-  bool grab_image(sensor_msgs::Image* image);
+  bool grab_image(sensor_msgs::Image *image);
 
-  // Fills msg with the last MJPEG frame from the camera (pixel_format mjpeg only).
-  bool fill_compressed_image(sensor_msgs::CompressedImage* msg);
+  // Fills msg with the last MJPEG frame from the camera (pixel_format mjpeg
+  // only).
+  bool fill_compressed_image(sensor_msgs::CompressedImage *msg);
 
   // enables/disable auto focus
   void set_auto_focus(int value);
 
   // Set video device parameters
-  void set_v4l_parameter(const std::string& param, int value);
-  void set_v4l_parameter(const std::string& param, const std::string& value);
+  void set_v4l_parameter(const std::string &param, int value);
+  void set_v4l_parameter(const std::string &param, const std::string &value);
 
-  static bool device_supports_pixel_format(const std::string& device, const std::string& pixel_format);
+  static bool device_supports_pixel_format(const std::string &device,
+                                           const std::string &pixel_format);
 
-  static io_method io_method_from_string(const std::string& str);
-  static pixel_format pixel_format_from_string(const std::string& str);
+  static io_method io_method_from_string(const std::string &str);
+  static pixel_format pixel_format_from_string(const std::string &str);
   // Get the actual pixel format for MJPEG video from bits per pixels
   static AVPixelFormat get_avcodec_pixel_format(int bits_per_pixel);
 
   /**
-   * When true (MJPEG only), publish decoded Y (luma) plane as mono8 instead of RGB.
-   * Must be called before start(); init_mjpeg_decoder() allocates avframe_rgb_ from this
-   * flag and process_image() is not safe to retoggle while the decoder is open.
+   * When true (MJPEG only), publish decoded Y (luma) plane as mono8 instead of
+   * RGB. Must be called before start(); init_mjpeg_decoder() allocates
+   * avframe_rgb_ from this flag and process_image() is not safe to retoggle
+   * while the decoder is open.
    */
   void set_publish_luma_only(bool publish_luma_only);
+
+  /**
+   * When false, frames are still captured (and the MJPEG bytes kept for
+   * fill_compressed_image()), but not decoded and not copied into the
+   * sensor_msgs::Image passed to grab_image(); only its header stamp is
+   * updated. Used to skip decoding when nothing subscribes to the decoded
+   * image. Can be toggled per frame.
+   */
+  void set_decode_enabled(bool enabled) { decode_enabled_ = enabled; }
 
   void stop_capturing(void);
   void start_capturing(void);
@@ -116,9 +135,8 @@ class UsbCam {
   bool is_changing_config();
   void is_changing_config(bool is_changing);
 
- private:
-  typedef struct
-  {
+private:
+  typedef struct {
     int width;
     int height;
     int bytes_per_pixel;
@@ -127,17 +145,15 @@ class UsbCam {
     int is_new;
   } camera_image_t;
 
-  struct buffer
-  {
-    void * start;
+  struct buffer {
+    void *start;
     size_t length;
   };
-
 
   int init_mjpeg_decoder(int bits_per_pixel, int image_width, int image_height);
   void mjpeg2rgb(char *MJPEG, int len, char *RGB, int NumPixels);
   void mjpeg2luma(char *MJPEG, int len, char *luma, int num_pixels);
-  void process_image(const void * src, int len, camera_image_t *dest);
+  void process_image(const void *src, int len, camera_image_t *dest);
   int read_frame();
   void uninit_device(void);
   void init_read(unsigned int buffer_size);
@@ -150,14 +166,13 @@ class UsbCam {
   bool is_capturing_;
   bool is_changing_config_;
 
-
   std::string camera_dev_;
   unsigned int pixelformat_;
   bool monochrome_;
   bool publish_luma_only_;
   io_method io_;
   int fd_;
-  buffer * buffers_;
+  buffer *buffers_;
   unsigned int n_buffers_;
   AVFrame *avframe_camera_;
   AVFrame *avframe_rgb_;
@@ -168,10 +183,9 @@ class UsbCam {
   struct SwsContext *video_sws_;
   camera_image_t *image_;
   std::vector<uint8_t> mjpeg_frame_;
-
+  bool decode_enabled_ = true;
 };
 
-}
+} // namespace usb_cam
 
 #endif
-
