@@ -546,6 +546,13 @@ void UsbCam::mjpeg2luma(char *MJPEG, int len, char *luma, int num_pixels)
 
 void UsbCam::process_image(const void * src, int len, camera_image_t *dest)
 {
+  if (!decode_enabled_)
+  {
+    // Nobody needs the decoded image: keep only the compressed bytes.
+    if (pixelformat_ == V4L2_PIX_FMT_MJPEG)
+      mjpeg_frame_.assign(static_cast<const uint8_t*>(src), static_cast<const uint8_t*>(src) + len);
+    return;
+  }
   if (pixelformat_ == V4L2_PIX_FMT_YUYV)
   {
     if (monochrome_)
@@ -1205,6 +1212,8 @@ bool UsbCam::grab_image(sensor_msgs::Image* msg)
   if (!grab_image()) return false;
   // stamp the image
   msg->header.stamp = ros::Time::now();
+  if (!decode_enabled_)
+    return true;  // frame not decoded; *msg keeps its previous pixels
   // Must match mono_output in start(): luma path is MJPEG-only.
   const bool mono_output = monochrome_ || (publish_luma_only_ && pixelformat_ == V4L2_PIX_FMT_MJPEG);
   if (mono_output)

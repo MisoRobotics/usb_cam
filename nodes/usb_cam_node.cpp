@@ -34,6 +34,7 @@
 *
 *********************************************************************/
 
+#include <cstring>
 #include <filesystem>
 
 #include <ros/ros.h>
@@ -48,6 +49,9 @@
 #include <std_srvs/SetBool.h>
 #include <thread>
 #include <usb_cam/device_utils.h>
+#include <usb_cam/detection_roi.h>
+#include <usb_cam/half_res.h>
+#include <xmlrpcpp/XmlRpcValue.h>
 #include <misocpp/diagnostic_updater_wrapper.h>
 
 namespace usb_cam {
@@ -99,8 +103,37 @@ public:
   // shared image message
   sensor_msgs::Image img_;
   sensor_msgs::CompressedImage compressed_img_;
-  image_transport::CameraPublisher image_pub_;
+  // image_raw is published only while it has subscribers; camera_info is published for every frame
+  // (camera_health_checker and diagnostics rely on it), so they use separate publishers.
+  image_transport::Publisher image_pub_;
+  ros::Publisher camera_info_pub_;
   ros::Publisher compressed_image_pub_;
+
+  // Detection-ROI crop: the band of the image that aruco_detect searches, derived from the
+  // same blacklist_regions / detection_roi_margin_px params aruco_detect reads.
+  // Published on ~roi/image_raw and ~roi/camera_info (camera_info.roi holds the offset).
+  image_transport::CameraPublisher roi_pub_;
+  sensor_msgs::Image roi_img_;
+  bool publish_detection_roi_{ false };
+  std::string detection_roi_param_ns_;
+  double detection_roi_refresh_period_{ 10.0 };
+  ros::Time last_roi_param_refresh_;
+  std::vector<std::vector<int>> roi_region_xs_;  // x coords of each blacklist polygon
+  int roi_margin_px_{ 100 };
+  bool have_roi_params_{ false };
+
+  // Scaled-down output (default ~image_1080 / ~image_1080_info at half resolution). Same result as the
+  // image_proc/resize nodes the GPU feeds used, but resized here from the frame this node already decodes,
+  // only while subscribed and at most half_res_max_rate Hz.
+  image_transport::Publisher half_res_pub_;
+  ros::Publisher half_res_info_pub_;
+  sensor_msgs::Image half_res_img_;
+  bool publish_half_res_{ false };
+  double half_res_scale_{ 0.5 };
+  int half_res_interpolation_{ 3 };  // cv::INTER_AREA
+  double half_res_max_rate_{ 0.0 };  // Hz, <= 0 means every frame
+  ros::Time last_half_res_pub_;
+  bool roi_params_warned_{ false };
 
   // parameters
   std::string video_device_name_, io_method_name_, pixel_format_name_, camera_name_, camera_info_url_;
@@ -159,9 +192,32 @@ public:
   {
     // advertise the main image topic
     image_transport::ImageTransport it(node_);
-    image_pub_ = it.advertiseCamera("image_raw", 1);
+    image_pub_ = it.advertise("image_raw", 1);
+    camera_info_pub_ = node_.advertise<sensor_msgs::CameraInfo>("camera_info", 1);
     compressed_image_pub_ =
         node_.advertise<sensor_msgs::CompressedImage>("image_compressed", 1);
+
+    // Detection-ROI crop topic (see roi_pub_).
+    node_.param("publish_detection_roi", publish_detection_roi_, true);
+    node_.param("detection_roi_param_ns", detection_roi_param_ns_, std::string("aruco_detect"));
+    node_.param("detection_roi_refresh_period", detection_roi_refresh_period_, 10.0);
+    if (publish_detection_roi_)
+    {
+      roi_pub_ = it.advertiseCamera("roi/image_raw", 1);
+    }
+
+    // Scaled-down output (see half_res_pub_).
+    std::string half_res_topic;
+    node_.param("publish_half_res", publish_half_res_, true);
+    node_.param("half_res_topic", half_res_topic, std::string("image_1080"));
+    node_.param("half_res_scale", half_res_scale_, 0.5);
+    node_.param("half_res_interpolation", half_res_interpolation_, 3);
+    node_.param("half_res_max_rate", half_res_max_rate_, 0.0);
+    if (publish_half_res_)
+    {
+      half_res_pub_ = it.advertise(half_res_topic, 1);
+      half_res_info_pub_ = node_.advertise<sensor_msgs::CameraInfo>(half_res_topic + "_info", 1);
+    }
 
     // grab the parameters
     node_.param("serial_no", serial_number_, std::string(""));
@@ -198,7 +254,7 @@ public:
     node_.param("camera_name", camera_name_, std::string("head_camera"));
     node_.param("camera_info_url", camera_info_url_, std::string(""));
 
-    bool publish_luma_only = (camera_name_.compare(0, 9, "fryer_cam") == 0);
+    bool publish_luma_only = false;
     node_.param("publish_luma_only", publish_luma_only, publish_luma_only);
     cinfo_.reset(new camera_info_manager::CameraInfoManager(node_, camera_name_, camera_info_url_));
 
@@ -434,8 +490,141 @@ public:
     cam_.shutdown();
   }
 
+  /**
+   * (Re)load the blacklist regions and margin that aruco_detect uses. Called periodically so the
+   * band follows changes and works regardless of startup order.
+   */
+  void refreshDetectionRoiParams()
+  {
+    last_roi_param_refresh_ = ros::Time::now();
+    const std::string ns = detection_roi_param_ns_.empty() ? "" : detection_roi_param_ns_ + "/";
+
+    XmlRpc::XmlRpcValue regions_param;
+    std::vector<std::vector<int>> region_xs;
+    bool ok = node_.getParam(ns + "blacklist_regions", regions_param) &&
+              regions_param.getType() == XmlRpc::XmlRpcValue::TypeArray;
+    for (int i = 0; ok && i < regions_param.size(); ++i)
+    {
+      XmlRpc::XmlRpcValue& region = regions_param[i];
+      if (region.getType() != XmlRpc::XmlRpcValue::TypeArray)
+      {
+        ok = false;
+        break;
+      }
+      std::vector<int> xs;
+      for (int j = 0; j < region.size(); ++j)
+      {
+        XmlRpc::XmlRpcValue& point = region[j];
+        if (point.getType() != XmlRpc::XmlRpcValue::TypeArray || point.size() != 2 ||
+            point[0].getType() != XmlRpc::XmlRpcValue::TypeInt)
+        {
+          ok = false;
+          break;
+        }
+        xs.push_back(static_cast<int>(point[0]));
+      }
+      region_xs.push_back(xs);
+    }
+
+    int margin_px = 100;  // aruco_detect default
+    node_.param(ns + "detection_roi_margin_px", margin_px, margin_px);
+
+    if (!ok)
+    {
+      if (have_roi_params_ || !roi_params_warned_)
+      {
+        ROS_WARN("%s: %s is missing or invalid; ~roi/image_raw carries the full frame until it is available.",
+                 camera_name_.c_str(), node_.resolveName(ns + "blacklist_regions").c_str());
+        roi_params_warned_ = true;
+      }
+      have_roi_params_ = false;
+      roi_region_xs_.clear();
+      return;
+    }
+    if (!have_roi_params_ || region_xs != roi_region_xs_ || margin_px != roi_margin_px_)
+    {
+      ROS_INFO("%s: loaded %zu blacklist regions (margin %d px) for ~roi/image_raw", camera_name_.c_str(),
+               region_xs.size(), margin_px);
+    }
+    roi_region_xs_ = region_xs;
+    roi_margin_px_ = margin_px;
+    have_roi_params_ = true;
+  }
+
+  /** Publish the detection-ROI band of img_ on ~roi/image_raw (full frame if no band can be derived). */
+  void publishDetectionRoi(const sensor_msgs::CameraInfo& full_info)
+  {
+    if ((ros::Time::now() - last_roi_param_refresh_).toSec() >= detection_roi_refresh_period_)
+    {
+      refreshDetectionRoiParams();
+    }
+
+    const int width = static_cast<int>(img_.width);
+    const int height = static_cast<int>(img_.height);
+    if (width <= 0 || height <= 0 || img_.step == 0)
+      return;
+
+    DetectionRoi roi;
+    if (!have_roi_params_ ||
+        !deriveDetectionRoiFromBlacklist(roi_region_xs_, width, height, roi_margin_px_, roi))
+    {
+      roi.x = 0;
+      roi.width = width;
+    }
+
+    const size_t bytes_per_pixel = img_.step / img_.width;
+    const size_t src_offset = static_cast<size_t>(roi.x) * bytes_per_pixel;
+    const size_t row_bytes = static_cast<size_t>(roi.width) * bytes_per_pixel;
+
+    roi_img_.header = img_.header;
+    roi_img_.encoding = img_.encoding;
+    roi_img_.is_bigendian = img_.is_bigendian;
+    roi_img_.height = img_.height;
+    roi_img_.width = static_cast<uint32_t>(roi.width);
+    roi_img_.step = static_cast<uint32_t>(row_bytes);
+    roi_img_.data.resize(row_bytes * img_.height);
+    for (int row = 0; row < height; ++row)
+    {
+      std::memcpy(&roi_img_.data[row * row_bytes], &img_.data[row * img_.step + src_offset], row_bytes);
+    }
+
+    // Standard ROS convention: width/height stay the full sensor size, roi gives the crop.
+    sensor_msgs::CameraInfo roi_info = full_info;
+    roi_info.roi.x_offset = static_cast<uint32_t>(roi.x);
+    roi_info.roi.y_offset = 0;
+    roi_info.roi.width = static_cast<uint32_t>(roi.width);
+    roi_info.roi.height = img_.height;
+    roi_info.roi.do_rectify = false;
+
+    roi_pub_.publish(roi_img_, roi_info);
+  }
+
+  /** Publish the scaled-down copy of img_ and its camera_info. */
+  void publishHalfRes(const sensor_msgs::CameraInfo& full_info)
+  {
+    if (!resizeImageMsg(img_, half_res_scale_, half_res_scale_, half_res_interpolation_, half_res_img_))
+    {
+      ROS_WARN_THROTTLE(10.0, "%s: cannot scale %s images for %s", camera_name_.c_str(), img_.encoding.c_str(),
+                        half_res_pub_.getTopic().c_str());
+      return;
+    }
+    half_res_pub_.publish(half_res_img_);
+    half_res_info_pub_.publish(scaleCameraInfo(full_info, half_res_scale_, half_res_scale_));
+  }
+
   bool take_and_send_image()
   {
+    // Only decode and publish image_raw / roi/image_raw while someone subscribes to them.
+    const bool image_raw_wanted = image_pub_.getNumSubscribers() > 0;
+    const bool roi_wanted = publish_detection_roi_ && roi_pub_.getNumSubscribers() > 0;
+    // Scaled output: only while subscribed, rate-limited like topic_tools/throttle.
+    const ros::Time now = ros::Time::now();
+    const bool half_res_wanted =
+        publish_half_res_ && half_res_pub_.getNumSubscribers() > 0 &&
+        (half_res_max_rate_ <= 0.0 || last_half_res_pub_.isZero() ||
+         (now - last_half_res_pub_).toSec() >= 1.0 / half_res_max_rate_);
+    cam_.set_decode_enabled(image_raw_wanted || roi_wanted || half_res_wanted);
+
     // grab the image
     if (!cam_.grab_image(&img_))
     {
@@ -446,9 +635,24 @@ public:
     ci->header.frame_id = img_.header.frame_id;
     ci->header.stamp = img_.header.stamp;
 
-    // publish the image
-    image_pub_.publish(img_, *ci);
+    // publish the image (only when subscribed) and camera_info (every frame)
+    if (image_raw_wanted)
+    {
+      image_pub_.publish(img_);
+    }
+    camera_info_pub_.publish(ci);
+    if (roi_wanted)
+    {
+      publishDetectionRoi(*ci);
+    }
+    if (half_res_wanted)
+    {
+      last_half_res_pub_ = now;
+      publishHalfRes(*ci);
+    }
     diag_freq_camera_info_->tick();
+    // Ticks for every captured frame, so the image_raw diagnostic reflects the camera rate
+    // even while image_raw itself has no subscribers.
     diag_freq_image_raw_->tick();
 
     compressed_img_.header = img_.header;

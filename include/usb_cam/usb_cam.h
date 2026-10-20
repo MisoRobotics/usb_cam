@@ -109,6 +109,13 @@ class UsbCam {
    */
   void set_publish_luma_only(bool publish_luma_only);
 
+  /**
+   * When false, frames are still captured (and the MJPEG bytes kept for fill_compressed_image()), but not decoded
+   * and not copied into the sensor_msgs::Image passed to grab_image(); only its header stamp is updated.
+   * Used to skip decoding when nothing subscribes to the decoded image. Can be toggled per frame.
+   */
+  void set_decode_enabled(bool enabled) { decode_enabled_ = enabled; }
+
   void stop_capturing(void);
   void start_capturing(void);
   bool is_capturing();
@@ -168,6 +175,7 @@ class UsbCam {
   struct SwsContext *video_sws_;
   camera_image_t *image_;
   std::vector<uint8_t> mjpeg_frame_;
+  bool decode_enabled_ = true;
 
 };
 
