@@ -441,7 +441,7 @@ void UsbCam::mjpeg2luma(char *MJPEG, int len, char *luma, int num_pixels) {
 void UsbCam::process_image(const void *src, int len, camera_image_t *dest) {
   if (!decode_enabled_) {
     // Nobody needs the decoded image: keep only the compressed bytes.
-    if (pixelformat_ == V4L2_PIX_FMT_MJPEG)
+    if (pixelformat_ == V4L2_PIX_FMT_MJPEG && compressed_enabled_)
       mjpeg_frame_.assign(static_cast<const uint8_t *>(src),
                           static_cast<const uint8_t *>(src) + len);
     return;
@@ -456,8 +456,9 @@ void UsbCam::process_image(const void *src, int len, camera_image_t *dest) {
   } else if (pixelformat_ == V4L2_PIX_FMT_UYVY)
     uyvy2rgb((char *)src, dest->image, dest->width * dest->height);
   else if (pixelformat_ == V4L2_PIX_FMT_MJPEG) {
-    mjpeg_frame_.assign(static_cast<const uint8_t *>(src),
-                        static_cast<const uint8_t *>(src) + len);
+    if (compressed_enabled_)
+      mjpeg_frame_.assign(static_cast<const uint8_t *>(src),
+                          static_cast<const uint8_t *>(src) + len);
     if (publish_luma_only_)
       mjpeg2luma((char *)src, len, dest->image, dest->width * dest->height);
     else

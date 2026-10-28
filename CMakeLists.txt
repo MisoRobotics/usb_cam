@@ -86,3 +86,14 @@ install(DIRECTORY include/${PROJECT_NAME}/
    DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
    FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
 )
+
+#############
+## Testing ##
+#############
+
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(test_detection_roi test/test_detection_roi.cpp)
+  if(TARGET test_detection_roi)
+    target_include_directories(test_detection_roi PRIVATE include)
+  endif()
+endif()

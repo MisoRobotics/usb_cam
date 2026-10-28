@@ -127,6 +127,9 @@ public:
    * image. Can be toggled per frame.
    */
   void set_decode_enabled(bool enabled) { decode_enabled_ = enabled; }
+  /** Keep a copy of each MJPEG frame for fill_compressed_image(); disable
+   * when nobody subscribes to the compressed output. */
+  void set_compressed_enabled(bool enabled) { compressed_enabled_ = enabled; }
 
   void stop_capturing(void);
   void start_capturing(void);
@@ -184,6 +187,7 @@ private:
   camera_image_t *image_;
   std::vector<uint8_t> mjpeg_frame_;
   bool decode_enabled_ = true;
+  bool compressed_enabled_ = true;
 };
 
 } // namespace usb_cam
