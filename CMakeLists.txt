@@ -11,6 +11,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(avcodec libavcodec REQUIRED)
 pkg_check_modules(swscale libswscale REQUIRED)
 pkg_check_modules(udev libudev REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 
 ###################################################
 ## Declare things to be passed to other projects ##
@@ -38,6 +39,7 @@ include_directories(include
   ${catkin_INCLUDE_DIRS}
   ${avcodec_INCLUDE_DIRS}
   ${swscale_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 ## Build the USB camera library
@@ -61,6 +63,7 @@ target_link_libraries(${PROJECT_NAME}_node
   ${swscale_LIBRARIES}
   ${catkin_LIBRARIES}
   ${udev_LIBRARIES}
+  ${OpenCV_LIBRARIES}
 )
 
 #############
@@ -83,3 +86,14 @@ install(DIRECTORY include/${PROJECT_NAME}/
    DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
    FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
 )
+
+#############
+## Testing ##
+#############
+
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(test_detection_roi test/test_detection_roi.cpp)
+  if(TARGET test_detection_roi)
+    target_include_directories(test_detection_roi PRIVATE include)
+  endif()
+endif()
